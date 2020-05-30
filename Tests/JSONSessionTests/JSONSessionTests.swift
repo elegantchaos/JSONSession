@@ -8,6 +8,7 @@ final class JSONSessionTests: XCTestCase {
     
     struct AProcessor: Processor {
         var response: JSONSessionTests.A?
+        var callback: (A) -> Void
         
         func process(decoded: Decodable, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
             return .inherited
@@ -20,18 +21,32 @@ final class JSONSessionTests: XCTestCase {
     
     struct Group: ProcessorGroup {
         var name = "Test"
+        var callback: (A) -> Void
+        var processors: [ProcessorBase]
         
-        var processors: [ProcessorBase] = [AProcessor()]
+        init(callback: @escaping (A) -> Void) {
+            self.callback = callback
+            self.processors = [AProcessor(callback: callback)]
+        }
     }
     
     func testExample() {
+        let x = expectation(description: "Decoded")
         let url = URL(string: "https://api.github.com")!
-        let session = Session(endpoint: url, token: "", fetcher: MockDataFetcher())
+        let fetcher = MockDataFetcher(output: [
+            url: .string("{ 'name': 'test' }", 200)
+        ])
+        let session = Session(endpoint: url, token: "", fetcher: fetcher)
         let target = FixedTarget("target")
-        let group = Group()
+        var decoded: A? = nil
+        let group = Group() { d in
+            decoded = d
+            x.fulfill()
+        }
         
-        session.fetcher = MockDataFetcher()
         session.schedule(target: target, processors: group)
+        wait(for: [x], timeout: 1.0)
+        XCTAssertEqual(decoded?.name, "Test")
     }
 
     static var allTests = [

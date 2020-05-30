@@ -13,13 +13,13 @@ import Foundation
 public struct MockDataFetcher: DataFetcher {
     public class Task: DataTask {
         let data: Data?
-        let request: URLRequest
+        let response: URLResponse?
         let error: Error?
         let callback: DataCallback
         
-        init(data: Data? = nil, request: URLRequest, error: Error? = nil, callback: @escaping DataCallback) {
+        init(data: Data? = nil, response: URLResponse? = nil, error: Error? = nil, callback: @escaping DataCallback) {
             self.data = data
-            self.request = request
+            self.response = response
             self.error = error
             self.callback = callback
         }
@@ -27,8 +27,6 @@ public struct MockDataFetcher: DataFetcher {
         public var isDone = false
         public func cancel() { }
         public func resume() {
-            let length = data?.count ?? 0
-            let response = URLResponse(url: request.url!, mimeType: nil, expectedContentLength: length, textEncodingName: "")
             callback(data, response, error)
             isDone = true
         }
@@ -40,7 +38,8 @@ public struct MockDataFetcher: DataFetcher {
     }
     
     public enum Output {
-        case data(Data)
+        case string(String, Int)
+        case data(Data, Int)
         case error(Error)
         case missing
     }
@@ -55,7 +54,8 @@ public struct MockDataFetcher: DataFetcher {
         var outputError: Error
         if let url = request.url, let output = output[url] {
             switch output {
-            case .data(let data): return Task(data: data, request: request, callback: callback)
+            case .string(let string, let code): return task(url: url, data: string.data(using: .utf8)!, code: code, callback: callback)
+            case .data(let data, let code): return task(url: url, data: data, code: code, callback: callback)
             case .error(let error): outputError = error
             case .missing: outputError = InternalError.outputMissing
             }
@@ -63,6 +63,11 @@ public struct MockDataFetcher: DataFetcher {
             outputError = InternalError.urlMissing
         }
         
-        return Task(request: request, error: outputError, callback: callback)
+        return Task(error: outputError, callback: callback)
+    }
+    
+    func task(url: URL, data: Data, code: Int, callback: @escaping DataCallback) -> DataTask {
+        let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: "1.0", headerFields: [:])
+        return Task(data: data, response: response, callback: callback)
     }
 }
