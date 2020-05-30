@@ -3,23 +3,14 @@
 //  All code (c) 2020 - present day, Elegant Chaos Limited.
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-public struct Target {
-    public let name: String
-    public let owner: String
-    public let workflow: String
-    
-    public init(name: String, owner: String, workflow: String) {
-        self.name = name
-        self.owner = owner
-        self.workflow = workflow
-    }
-    
-    public var fullName: String { return "\(owner)/\(name):\(workflow)" }
+import Foundation
 
+public protocol Target {
+    func path(in session: Session) -> String
 }
 
-extension Target: CustomStringConvertible {
-    public var description: String {
-        return fullName
-    }
+public struct FixedTarget: Target {
+    let path: String
+    public func path(in session: Session) -> String { return path }
+    public init(_ path: String) { self.path = path }
 }

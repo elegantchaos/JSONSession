@@ -2,6 +2,24 @@
   "object": {
     "pins": [
       {
+        "package": "Coercion",
+        "repositoryURL": "https://github.com/elegantchaos/Coercion",
+        "state": {
+          "branch": null,
+          "revision": "102e7276acb0a788b02360dae5ec959a214cc964",
+          "version": "1.0.0"
+        }
+      },
+      {
+        "package": "CollectionExtensions",
+        "repositoryURL": "https://github.com/elegantchaos/CollectionExtensions",
+        "state": {
+          "branch": null,
+          "revision": "002f744b085c162f37783b8a629ae6364c558c3a",
+          "version": "1.0.2"
+        }
+      },
+      {
         "package": "Logger",
         "repositoryURL": "https://github.com/elegantchaos/Logger",
         "state": {

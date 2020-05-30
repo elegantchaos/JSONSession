@@ -3,10 +3,12 @@
 //  All code (c) 2020 - present day, Elegant Chaos Limited.
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
+import Coercion
 import Foundation
 import Logger
 
 public let sessionChannel = Channel("com.elegantchaos.jsonsession.session")
+public let networkingChannel = Channel("com.elegantchaos.jsonsession.networking")
 
 public enum ResponseState {
     case updated
@@ -17,25 +19,24 @@ public enum ResponseState {
 
 open class Session {
     public let session = URLSession.shared
-    public let target: Target
-    public let context: Context
+    public let endpoint: URL
+    public let token: String
     public let defaultInterval: Int
     
     var tasks: [URLSessionDataTask] = []
     
-    public init(repo: Target, context: Context, defaultInterval: Int = 60) {
-        self.target = repo
-        self.context = context
+    public init(endpoint: URL, token: String, defaultInterval: Int = 60) {
+        self.endpoint = endpoint
+        self.token = token
         self.defaultInterval = defaultInterval
     }
     
     
-    public func schedule(processors: ProcessorGroup, for deadline: DispatchTime, tag: String? = nil, repeatingEvery: Int? = nil) {
-        let query = processors.query(for: self)
+    public func schedule(target: Target, processors: ProcessorGroup, for deadline: DispatchTime = DispatchTime.now(), tag: String? = nil, repeatingEvery: Int? = nil) {
         let distance = deadline.distance(to: DispatchTime.now())
-        sessionChannel.log("Scheduled \(query.name) in \(distance)")
+        sessionChannel.log("Scheduled \(processors.name) in \(distance)")
         DispatchQueue.global(qos: .background).asyncAfter(deadline: deadline) {
-            self.sendRequest(query: query, processors: processors, repeatingEvery: repeatingEvery)
+            self.sendRequest(target: target, processors: processors, repeatingEvery: repeatingEvery)
         }
     }
         
@@ -46,8 +47,17 @@ open class Session {
         case unexpectedResponse(Int)
     }
     
-    func sendRequest(query: Query, processors: ProcessorGroup, tag: String? = nil, repeatingEvery: Int? = nil) {
-        var request = query.request(with: context, repo: target)
+    func request(for target: Target, processors: ProcessorGroup) -> URLRequest {
+        let authorization = "bearer \(token)"
+        let path = processors.path(for: target, in: self)
+        var request = URLRequest(url: endpoint.appendingPathComponent(path))
+        request.addValue(authorization, forHTTPHeaderField: "Authorization")
+        request.httpMethod = "GET"
+        return request
+    }
+
+    func sendRequest(target: Target, processors: ProcessorGroup, tag: String? = nil, repeatingEvery: Int? = nil) {
+        var request = self.request(for: target, processors: processors)
         if let tag = tag {
             request.addValue(tag, forHTTPHeaderField: "If-None-Match")
         }
@@ -57,7 +67,7 @@ open class Session {
             var shouldRepeat = repeatingEvery != nil
             var repeatInterval = repeatingEvery ?? self.defaultInterval
 
-            networkingChannel.log("got response for \(self.target)")
+            networkingChannel.log("got response for \(target)")
             if let error = error {
                 networkingChannel.log(error)
             }
@@ -71,20 +81,21 @@ open class Session {
                     networkingChannel.log("rate limit remaining: \(remaining)")
                 }
                 
-                if let seconds = response.value(forHTTPHeaderField: "X-Poll-Interval").asInt {
+                if let seconds = response.value(forHTTPHeaderField: "X-Poll-Interval")?.asInt {
                     repeatInterval = max(repeatInterval, seconds)
                     networkingChannel.log("repeat interval \(repeatInterval) (capped at \(seconds))")
                 }
 
-                shouldRepeat = try processors.decode(response: response, data: data, in: self) || shouldRepeat
+                let status = try processors.decode(response: response, data: data, in: self)
+                shouldRepeat = status.shouldRepeat(current: shouldRepeat)
 
             } catch {
-                sessionChannel.log("Error thrown:\n- query: \(query.name)\n- target: \(self.target)\n- payload: \(ProcessorType.Payload.self)\n- error: \(error)\n")
+                sessionChannel.log("Error thrown:\n- query: \(processors.name)\n- target: \(target)\n- processor: \(processors.name)\n- error: \(error)\n")
                 if let data = data { sessionChannel.log("- data: \(data.prettyPrinted)\n\n") }
             }
             
             if shouldRepeat {
-                self.schedule(processor: processor, for: DispatchTime.now().advanced(by: DispatchTimeInterval.seconds(repeatInterval)), tag: updatedTag, repeatingEvery: repeatingEvery)
+                self.schedule(target: target, processors: processors, for: DispatchTime.now().advanced(by: DispatchTimeInterval.seconds(repeatInterval)), tag: updatedTag, repeatingEvery: repeatingEvery)
             }
             
             DispatchQueue.main.async {
@@ -93,27 +104,9 @@ open class Session {
         }
         
         DispatchQueue.main.async {
-            sessionChannel.log("Sending \(query.name) for \(self.target) (\(request))")
+            sessionChannel.log("Sending \(processors.name) for \(target) (\(request))")
             self.tasks.append(task)
             task.resume()
-        }
-    }
-}
-
-extension Sequence {
-    func sorted<T: Comparable>(by keyPath: KeyPath<Element, T>) -> [Element] {
-        return sorted { a, b in
-            return a[keyPath: keyPath] < b[keyPath: keyPath]
-        }
-    }
-}
-
-extension Optional where Wrapped == String {
-    var asInt: Int? {
-        if let value = self {
-            return Int(value)
-        } else {
-            return nil
         }
     }
 }

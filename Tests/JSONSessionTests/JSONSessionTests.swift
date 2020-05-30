@@ -2,11 +2,35 @@ import XCTest
 @testable import JSONSession
 
 final class JSONSessionTests: XCTestCase {
+    struct A: Codable {
+        let name: String
+    }
+    
+    struct AProcessor: Processor {
+        var response: JSONSessionTests.A?
+        
+        func process(decoded: Decodable, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
+            return .inherited
+        }
+        
+        typealias Payload = A
+        var name = "Test"
+        var codes: [Int] = [200]
+    }
+    
+    struct Group: ProcessorGroup {
+        var name = "Test"
+        
+        var processors: [ProcessorBase] = [AProcessor()]
+    }
+    
     func testExample() {
-        // This is an example of a functional test case.
-        // Use XCTAssert and related functions to verify your tests produce the correct
-        // results.
-        XCTAssertEqual(JSONSession().text, "Hello, World!")
+        let url = URL(string: "https://api.github.com")!
+        let session = Session(endpoint: url, token: "")
+        let target = FixedTarget("target")
+        let group = Group()
+        
+        session.schedule(target: target, processors: group)
     }
 
     static var allTests = [
