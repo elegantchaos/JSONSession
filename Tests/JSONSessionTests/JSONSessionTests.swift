@@ -26,10 +26,11 @@ final class JSONSessionTests: XCTestCase {
     
     func testExample() {
         let url = URL(string: "https://api.github.com")!
-        let session = Session(endpoint: url, token: "")
+        let session = Session(endpoint: url, token: "", fetcher: MockDataFetcher())
         let target = FixedTarget("target")
         let group = Group()
         
+        session.fetcher = MockDataFetcher()
         session.schedule(target: target, processors: group)
     }
 

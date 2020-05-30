@@ -18,17 +18,18 @@ public enum ResponseState {
 }
 
 open class Session {
-    public let fetcher: DataFetcher = URLSession.shared
+    public let fetcher: DataFetcher
     public let endpoint: URL
     public let token: String
     public let defaultInterval: Int
     
     var tasks: [DataTask] = []
     
-    public init(endpoint: URL, token: String, defaultInterval: Int = 60) {
+    public init(endpoint: URL, token: String, defaultInterval: Int = 60, fetcher: DataFetcher = URLSession.shared) {
         self.endpoint = endpoint
         self.token = token
         self.defaultInterval = defaultInterval
+        self.fetcher = fetcher
     }
     
     
