@@ -11,6 +11,7 @@ final class JSONSessionTests: XCTestCase {
         var callback: (A) -> Void
         
         func process(decoded: Decodable, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
+            callback(decoded as! A)
             return .inherited
         }
         
@@ -31,13 +32,17 @@ final class JSONSessionTests: XCTestCase {
     }
     
     func testExample() {
+        let a = A(name: "test")
+        let encoder = JSONEncoder()
+        let json = try! encoder.encode(a)
         let x = expectation(description: "Decoded")
-        let url = URL(string: "https://api.github.com")!
+        let target = FixedTarget("blah")
+        let endpoint = URL(string: "https://api.github.com")!
+        let url = endpoint.appendingPathComponent(target.path)
         let fetcher = MockDataFetcher(output: [
-            url: .string("{ 'name': 'test' }", 200)
+            url : .init(for: 200, return: json)
         ])
-        let session = Session(endpoint: url, token: "", fetcher: fetcher)
-        let target = FixedTarget("target")
+        let session = Session(endpoint: endpoint, token: "", fetcher: fetcher)
         var decoded: A? = nil
         let group = Group() { d in
             decoded = d
@@ -46,7 +51,7 @@ final class JSONSessionTests: XCTestCase {
         
         session.schedule(target: target, processors: group)
         wait(for: [x], timeout: 1.0)
-        XCTAssertEqual(decoded?.name, "Test")
+        XCTAssertEqual(decoded?.name, "test")
     }
 
     static var allTests = [

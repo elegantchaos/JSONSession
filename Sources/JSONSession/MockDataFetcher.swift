@@ -5,45 +5,66 @@
 
 import Foundation
 
+protocol DataConvertible {
+    var asData: Data? { get }
+}
+
 /**
  Test fetcher which ignores the URL and just returns the data it's been given.
  Useful for testing.
  */
 
 public struct MockDataFetcher: DataFetcher {
-    public class Task: DataTask {
-        let data: Data?
+    public class Task<Payload>: DataTask {
+        let payload: Payload
         let response: URLResponse?
-        let error: Error?
         let callback: DataCallback
         
-        init(data: Data? = nil, response: URLResponse? = nil, error: Error? = nil, callback: @escaping DataCallback) {
-            self.data = data
+        init(_ payload: Payload, response: URLResponse? = nil, callback: @escaping DataCallback) {
+            self.payload = payload
             self.response = response
-            self.error = error
             self.callback = callback
         }
         
         public var isDone = false
         public func cancel() { }
         public func resume() {
-            callback(data, response, error)
+            DispatchQueue.global(qos: .default).async(execute: execute)
+        }
+        
+        func blah<T>(for t: T) -> Data? {
+            return nil
+        }
+        
+        func blah<T>(for t: T) -> Data? where T: Encodable {
+            let encoder = JSONEncoder()
+            return try? encoder.encode(t)
+        }
+        
+        func execute() {
+            if let data = payload as? Data {
+                callback(data, response, nil)
+            } else if let data = blah(for: payload) {
+                callback(data, response, nil)
+            } else if let error = payload as? Error {
+                callback(nil, response, error)
+            } else {
+                fatalError("Invalid payload type \(payload).")
+            }
             isDone = true
         }
     }
 
-    public enum InternalError: Error {
-        case urlMissing
-        case outputMissing
+    public struct Output {
+        let code: Int
+        let payload: Any
+        
+        init(for code: Int, return payload: Any) {
+            self.code = code
+            self.payload = payload
+        }
     }
-    
-    public enum Output {
-        case string(String, Int)
-        case data(Data, Int)
-        case error(Error)
-        case missing
-    }
-    
+
     public let output: [URL:Output]
     
     public init(output: [URL:Output]) {
@@ -51,23 +72,10 @@ public struct MockDataFetcher: DataFetcher {
     }
     
     public func data(for request: URLRequest, callback: @escaping DataCallback) -> DataTask {
-        var outputError: Error
-        if let url = request.url, let output = output[url] {
-            switch output {
-            case .string(let string, let code): return task(url: url, data: string.data(using: .utf8)!, code: code, callback: callback)
-            case .data(let data, let code): return task(url: url, data: data, code: code, callback: callback)
-            case .error(let error): outputError = error
-            case .missing: outputError = InternalError.outputMissing
-            }
-        } else {
-            outputError = InternalError.urlMissing
-        }
-        
-        return Task(error: outputError, callback: callback)
-    }
-    
-    func task(url: URL, data: Data, code: Int, callback: @escaping DataCallback) -> DataTask {
-        let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: "1.0", headerFields: [:])
-        return Task(data: data, response: response, callback: callback)
+        guard let url = request.url else { fatalError("Request had no URL.") }
+        guard let output = output[url] else { fatalError("Request had no URL.") }
+
+        let response = HTTPURLResponse(url: url, statusCode: output.code, httpVersion: "1.0", headerFields: [:])
+        return Task(output.payload, response: response, callback: callback)
     }
 }
