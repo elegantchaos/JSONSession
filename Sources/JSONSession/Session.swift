@@ -18,12 +18,12 @@ public enum ResponseState {
 }
 
 open class Session {
-    public let session = URLSession.shared
+    public let fetcher: DataFetcher = URLSession.shared
     public let endpoint: URL
     public let token: String
     public let defaultInterval: Int
     
-    var tasks: [URLSessionDataTask] = []
+    var tasks: [DataTask] = []
     
     public init(endpoint: URL, token: String, defaultInterval: Int = 60) {
         self.endpoint = endpoint
@@ -62,7 +62,7 @@ open class Session {
             request.addValue(tag, forHTTPHeaderField: "If-None-Match")
         }
         
-        let task = session.dataTask(with: request) { data, response, error in
+        let task = fetcher.data(for: request) { data, response, error in
             var updatedTag = tag
             var shouldRepeat = repeatingEvery != nil
             var repeatInterval = repeatingEvery ?? self.defaultInterval
@@ -99,7 +99,7 @@ open class Session {
             }
             
             DispatchQueue.main.async {
-                self.tasks = self.tasks.filter { task in return task.state == .running }
+                self.tasks = self.tasks.filter { task in !task.isDone }
             }
         }
         
