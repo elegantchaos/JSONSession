@@ -28,22 +28,10 @@ public protocol ProcessorBase {
 
 public protocol Processor: ProcessorBase {
     associatedtype Payload: Decodable
-    var response: Payload? { get set }
 }
 
 public extension Processor {
     func decode(data: Data, with decoder: JSONDecoder) throws -> Decodable {
         return try decoder.decode(Payload.self, from: data)
     }
-    
-//    fileprivate func decodeError(_ data: Data) throws -> RepeatStatus {
-//        let decoder = JSONDecoder()
-//        decoder.dateDecodingStrategy = .iso8601
-//        let error = try decoder.decode(Failure.self, from: data)
-//        if !error.canIgnore {
-//            throw Session.Errors.apiError(error)
-//        }
-//        
-//        return .inherited
-//    }
-}
+ }

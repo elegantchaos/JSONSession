@@ -11,6 +11,7 @@ public protocol ProcessorGroup {
 
     func path(for target: Target, in session: Session) -> String
     func decode(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus
+    func unprocessed(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus
 }
 
 public extension ProcessorGroup {
@@ -35,6 +36,11 @@ public extension ProcessorGroup {
             }
         }
         
+        return try unprocessed(response: response, data: data, in: session)
+    }
+    
+    func unprocessed(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus {
         throw Session.Errors.unexpectedResponse(response.statusCode)
     }
+
 }

@@ -4,6 +4,7 @@
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 import Coercion
+import DataFetcher
 import Foundation
 import Logger
 
@@ -63,37 +64,41 @@ open class Session {
             request.addValue(tag, forHTTPHeaderField: "If-None-Match")
         }
         
-        let task = fetcher.data(for: request) { data, response, error in
+        let task = fetcher.data(for: request) { result, response in
             var updatedTag = tag
             var shouldRepeat = repeatingEvery != nil
             var repeatInterval = repeatingEvery ?? self.defaultInterval
 
             networkingChannel.log("got response for \(target)")
-            if let error = error {
+            
+            switch result {
+            case .failure(let error):
                 networkingChannel.log(error)
+                
+            case .success(let data):
+                do {
+                    guard let response = response as? HTTPURLResponse else { throw Errors.badResponse }
+
+                    if let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining"), let tag = response.value(forHTTPHeaderField: "Etag") {
+                        updatedTag = tag
+                        networkingChannel.log("rate limit remaining: \(remaining)")
+                    }
+                    
+                    if let seconds = response.value(forHTTPHeaderField: "X-Poll-Interval")?.asInt {
+                        repeatInterval = max(repeatInterval, seconds)
+                        networkingChannel.log("repeat interval \(repeatInterval) (capped at \(seconds))")
+                    }
+
+                    let status = try processors.decode(response: response, data: data, in: self)
+                    shouldRepeat = status.shouldRepeat(current: shouldRepeat)
+
+                } catch {
+                    sessionChannel.log("Error thrown:\n- query: \(processors.name)\n- target: \(target)\n- processor: \(processors.name)\n- error: \(error)\n")
+                    sessionChannel.log("- data: \(data.prettyPrinted)\n\n")
+                }
+
             }
             
-            do {
-                guard let response = response as? HTTPURLResponse else { throw Errors.badResponse }
-                guard let data = data else { throw Errors.missingData }
-
-                if let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining"), let tag = response.value(forHTTPHeaderField: "Etag") {
-                    updatedTag = tag
-                    networkingChannel.log("rate limit remaining: \(remaining)")
-                }
-                
-                if let seconds = response.value(forHTTPHeaderField: "X-Poll-Interval")?.asInt {
-                    repeatInterval = max(repeatInterval, seconds)
-                    networkingChannel.log("repeat interval \(repeatInterval) (capped at \(seconds))")
-                }
-
-                let status = try processors.decode(response: response, data: data, in: self)
-                shouldRepeat = status.shouldRepeat(current: shouldRepeat)
-
-            } catch {
-                sessionChannel.log("Error thrown:\n- query: \(processors.name)\n- target: \(target)\n- processor: \(processors.name)\n- error: \(error)\n")
-                if let data = data { sessionChannel.log("- data: \(data.prettyPrinted)\n\n") }
-            }
             
             if shouldRepeat {
                 self.schedule(target: target, processors: processors, for: DispatchTime.now().advanced(by: DispatchTimeInterval.seconds(repeatInterval)), tag: updatedTag, repeatingEvery: repeatingEvery)

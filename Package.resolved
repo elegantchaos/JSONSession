@@ -3,25 +3,25 @@
     "pins": [
       {
         "package": "Coercion",
-        "repositoryURL": "https://github.com/elegantchaos/Coercion",
+        "repositoryURL": "https://github.com/elegantchaos/Coercion.git",
         "state": {
           "branch": null,
-          "revision": "102e7276acb0a788b02360dae5ec959a214cc964",
-          "version": "1.0.0"
+          "revision": "6872c101780abbe62bfe6e2498a2a3b14813ccd6",
+          "version": "1.0.3"
         }
       },
       {
-        "package": "CollectionExtensions",
-        "repositoryURL": "https://github.com/elegantchaos/CollectionExtensions",
+        "package": "DataFetcher",
+        "repositoryURL": "https://github.com/elegantchaos/DataFetcher.git",
         "state": {
           "branch": null,
-          "revision": "002f744b085c162f37783b8a629ae6364c558c3a",
-          "version": "1.0.2"
+          "revision": "8440a05c0b3c7145360274c929407c2f6cc8a42d",
+          "version": "1.0.1"
         }
       },
       {
         "package": "Logger",
-        "repositoryURL": "https://github.com/elegantchaos/Logger",
+        "repositoryURL": "https://github.com/elegantchaos/Logger.git",
         "state": {
           "branch": null,
           "revision": "e8a0dea5e826a6b3f7d020bd113247274991fb97",
@@ -30,11 +30,11 @@
       },
       {
         "package": "XCTestExtensions",
-        "repositoryURL": "https://github.com/elegantchaos/XCTestExtensions",
+        "repositoryURL": "https://github.com/elegantchaos/XCTestExtensions.git",
         "state": {
           "branch": null,
-          "revision": "5a6c9b3d5889d48d647f2a165c9bba8b966d3a22",
-          "version": "1.1.1"
+          "revision": "15991478b5c9bda527a0a59567ad0fa26940f74c",
+          "version": "1.1.2"
         }
       }
     ]

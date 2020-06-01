@@ -13,15 +13,16 @@ let package = Package(
             targets: ["JSONSession"]),
     ],
     dependencies: [
-         .package(url: "https://github.com/elegantchaos/CollectionExtensions", from: "1.0.0"),
-         .package(url: "https://github.com/elegantchaos/Coercion", from: "1.0.0"),
-         .package(url: "https://github.com/elegantchaos/Logger", from: "1.5.5"),
-         .package(url: "https://github.com/elegantchaos/XCTestExtensions", from: "1.0.0"),
+//         .package(url: "https://github.com/elegantchaos/CollectionExtensions", from: "1.0.0"),
+         .package(url: "https://github.com/elegantchaos/Coercion.git", from: "1.0.0"),
+         .package(url: "https://github.com/elegantchaos/DataFetcher.git", from: "1.0.1"),
+         .package(url: "https://github.com/elegantchaos/Logger.git", from: "1.5.5"),
+         .package(url: "https://github.com/elegantchaos/XCTestExtensions.git", from: "1.0.0"),
     ],
     targets: [
         .target(
             name: "JSONSession",
-            dependencies: ["Coercion", "CollectionExtensions", "Logger"]),
+            dependencies: ["Coercion", "DataFetcher", "Logger"]),
         .testTarget(
             name: "JSONSessionTests",
             dependencies: ["JSONSession", "XCTestExtensions"]),
