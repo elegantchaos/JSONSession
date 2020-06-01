@@ -11,6 +11,11 @@ import Logger
 public let sessionChannel = Channel("com.elegantchaos.jsonsession.session")
 public let networkingChannel = Channel("com.elegantchaos.jsonsession.networking")
 
+extension TimeInterval {
+    var asDispatchTimeInterval: DispatchTimeInterval {
+        return .nanoseconds(Int(self * 1000000000.0))
+    }
+}
 public enum ResponseState {
     case updated
     case unchanged
@@ -22,11 +27,11 @@ open class Session {
     public let fetcher: DataFetcher
     public let endpoint: URL
     public let token: String
-    public let defaultInterval: Int
+    public let defaultInterval: TimeInterval
     
     var tasks: [DataTask] = []
     
-    public init(endpoint: URL, token: String, defaultInterval: Int = 60, fetcher: DataFetcher = URLSession.shared) {
+    public init(endpoint: URL, token: String, defaultInterval: TimeInterval = 60.0, fetcher: DataFetcher = URLSession.shared) {
         self.endpoint = endpoint
         self.token = token
         self.defaultInterval = defaultInterval
@@ -34,7 +39,7 @@ open class Session {
     }
     
     
-    public func schedule(target: Target, processors: ProcessorGroup, for deadline: DispatchTime = DispatchTime.now(), tag: String? = nil, repeatingEvery: Int? = nil) {
+    public func schedule(target: Target, processors: ProcessorGroup, for deadline: DispatchTime = DispatchTime.now(), tag: String? = nil, repeatingEvery: TimeInterval? = nil) {
         let distance = deadline.distance(to: DispatchTime.now())
         sessionChannel.log("Scheduled \(processors.name) in \(distance)")
         DispatchQueue.global(qos: .background).asyncAfter(deadline: deadline) {
@@ -58,7 +63,7 @@ open class Session {
         return request
     }
 
-    func sendRequest(target: Target, processors: ProcessorGroup, tag: String? = nil, repeatingEvery: Int? = nil) {
+    func sendRequest(target: Target, processors: ProcessorGroup, tag: String? = nil, repeatingEvery: TimeInterval? = nil) {
         var request = self.request(for: target, processors: processors)
         if let tag = tag {
             request.addValue(tag, forHTTPHeaderField: "If-None-Match")
@@ -84,7 +89,7 @@ open class Session {
                         networkingChannel.log("rate limit remaining: \(remaining)")
                     }
                     
-                    if let seconds = response.value(forHTTPHeaderField: "X-Poll-Interval")?.asInt {
+                    if let seconds = response.value(forHTTPHeaderField: "X-Poll-Interval")?.asDouble {
                         repeatInterval = max(repeatInterval, seconds)
                         networkingChannel.log("repeat interval \(repeatInterval) (capped at \(seconds))")
                     }
@@ -101,7 +106,7 @@ open class Session {
             
             
             if shouldRepeat {
-                self.schedule(target: target, processors: processors, for: DispatchTime.now().advanced(by: DispatchTimeInterval.seconds(repeatInterval)), tag: updatedTag, repeatingEvery: repeatingEvery)
+                self.schedule(target: target, processors: processors, for: DispatchTime.now().advanced(by: repeatInterval.asDispatchTimeInterval), tag: updatedTag, repeatingEvery: repeatingEvery)
             }
             
             DispatchQueue.main.async {

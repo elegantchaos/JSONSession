@@ -79,9 +79,9 @@ final class JSONSessionTests: XCTestCase {
     func waitForResult(fetcher: DataFetcher, count: Int = 1) {
         let group = Group(test: self, target: count)
         let session = Session(endpoint: endpoint, token: "", fetcher: fetcher)
-        session.schedule(target: target, processors: group, repeatingEvery: count == 1 ? nil : 1)
+        session.schedule(target: target, processors: group, repeatingEvery: count == 1 ? nil : 0.1)
         resultExpectation = expectation(description: "Got Result")
-        wait(for: [resultExpectation], timeout: 3.0)
+        wait(for: [resultExpectation], timeout: 1.0)
     }
     
     func testPayload() {
