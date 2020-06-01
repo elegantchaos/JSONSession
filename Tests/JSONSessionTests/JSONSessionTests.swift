@@ -35,7 +35,7 @@ final class JSONSessionTests: XCTestCase {
         typealias Payload = ExampleError
         let name = "Test"
         let codes: [Int] = [404]
-        var callback: (ExampleError) -> Void
+        var callback: (Exampl   eError) -> Void
         
         func process(decoded: Decodable, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
             callback(decoded as! ExampleError)
