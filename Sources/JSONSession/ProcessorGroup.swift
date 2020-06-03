@@ -5,6 +5,10 @@
 
 import Foundation
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 public protocol ProcessorGroup {
     var name: String { get }
     var processors: [ProcessorBase] { get }

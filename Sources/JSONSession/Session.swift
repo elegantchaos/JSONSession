@@ -8,6 +8,10 @@ import DataFetcher
 import Foundation
 import Logger
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 public let sessionChannel = Channel("com.elegantchaos.jsonsession.session")
 public let networkingChannel = Channel("com.elegantchaos.jsonsession.networking")
 
