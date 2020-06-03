@@ -1,6 +1,10 @@
 import XCTest
 import DataFetcher
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 @testable import JSONSession
 
 final class JSONSessionTests: XCTestCase {

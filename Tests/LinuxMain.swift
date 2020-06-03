@@ -3,5 +3,6 @@ import XCTest
 import JSONSessionTests
 
 var tests = [XCTestCaseEntry]()
-tests += JSONSessionTests.allTests()
+tests += JSONSessionTests.__allTests()
+
 XCTMain(tests)
