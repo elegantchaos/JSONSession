@@ -16,9 +16,9 @@ public enum RepeatStatus {
 
     func shouldRepeat(current: Bool) -> Bool {
         switch self {
-            case .request: return true
-            case .cancel: return false
-            case .inherited: return current
+            case .request:      return true
+            case .cancel:       return false
+            case .inherited:    return current
         }
     }
 }

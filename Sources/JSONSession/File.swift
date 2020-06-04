@@ -7,7 +7,7 @@ import Foundation
 
 extension DispatchTime {
     public func distance_shim(to other: DispatchTime) -> DispatchTimeInterval {
-        let diff = other.uptimeNanoseconds - uptimeNanoseconds
+        let diff = Int(other.uptimeNanoseconds) - Int(uptimeNanoseconds)
         return .nanoseconds(Int(diff))
     }
 

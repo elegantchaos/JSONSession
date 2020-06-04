@@ -44,7 +44,7 @@ open class Session {
     
     
     public func schedule(target: Target, processors: ProcessorGroup, for deadline: DispatchTime = DispatchTime.now(), tag: String? = nil, repeatingEvery: TimeInterval? = nil) {
-        let distance = deadline.distance(to: DispatchTime.now())
+        let distance = DispatchTime.now().distance(to: deadline)
         sessionChannel.log("Scheduled \(processors.name) in \(distance)")
         DispatchQueue.global(qos: .background).asyncAfter(deadline: deadline) {
             self.sendRequest(target: target, processors: processors, repeatingEvery: repeatingEvery)
@@ -110,7 +110,8 @@ open class Session {
             
             
             if shouldRepeat {
-                self.schedule(target: target, processors: processors, for: DispatchTime.now().advanced(by: repeatInterval.asDispatchTimeInterval), tag: updatedTag, repeatingEvery: repeatingEvery)
+                let nextRepeat = DispatchTime.now().advanced(by: repeatInterval.asDispatchTimeInterval)
+                self.schedule(target: target, processors: processors, for: nextRepeat, tag: updatedTag, repeatingEvery: repeatingEvery)
             }
             
             DispatchQueue.main.async {

@@ -27,11 +27,10 @@ final class JSONSessionTests: XCTestCase {
         typealias Payload = ExamplePayload
         var name = "Test"
         var codes: [Int] = [200]
-        var callback: (ExamplePayload) -> Void
+        var callback: (ExamplePayload) -> RepeatStatus
         
         func process(decoded: Decodable, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
-            callback(decoded as! ExamplePayload)
-            return .inherited
+            return callback(decoded as! ExamplePayload)
         }
     }
 
@@ -50,28 +49,32 @@ final class JSONSessionTests: XCTestCase {
     class Group: ProcessorGroup {
         let name = "Example Group"
         let processors: [ProcessorBase]
-        let gotResult: (Any) -> Void
+        let gotResult: (Any) -> RepeatStatus
         
-        init(test: JSONSessionTests, target: Int) {
+        init(target: Int, done: @escaping (Any) -> Void) {
             var count = 0
-            let gotResult: (Any) -> Void = { result in
+            let gotResult: (Any) -> RepeatStatus = { result in
                 count += 1
                 if count == target {
-                    test.gotResult(result)
+                    DispatchQueue.main.async {
+                        done(result)
+                    }
+                    return .cancel
+                } else {
+                    return .request
                 }
             }
 
             self.gotResult = gotResult
             self.processors = [
-                PayloadProcessor() { gotResult($0) },
-                ErrorProcessor() { gotResult($0) }
+                PayloadProcessor() { return gotResult($0) },
+                ErrorProcessor() { _ = gotResult($0) }
             ]
         }
         
         
         func unprocessed(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus {
-            gotResult("Unprocessed")
-            return .inherited
+            return gotResult("Unprocessed")
         }
     }
     
@@ -81,7 +84,7 @@ final class JSONSessionTests: XCTestCase {
     }
     
     func waitForResult(fetcher: DataFetcher, count: Int = 1) {
-        let group = Group(test: self, target: count)
+        let group = Group(target: count) { result in self.gotResult(result) }
         let session = Session(endpoint: endpoint, token: "", fetcher: fetcher)
         session.schedule(target: target, processors: group, repeatingEvery: count == 1 ? nil : 0.1)
         resultExpectation = expectation(description: "Got Result")
