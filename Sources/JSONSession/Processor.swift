@@ -31,6 +31,7 @@ public protocol ProcessorBase: ProcessorGroup {
 }
 
 extension ProcessorBase {
+    var name: String { "untitled" }
     var processors: [ProcessorBase] { return [self] }
 }
 

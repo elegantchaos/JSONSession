@@ -15,11 +15,11 @@ public protocol QueryResponse: Codable {
 
 public struct Query {
     let name: String
-    let query: (Target, Session) -> String
+    let query: (ResourceResolver, Session) -> String
     
-    func request(for target: Target, in session: Session) -> URLRequest {
+    func request(for target: ResourceResolver, in session: Session) -> URLRequest {
         let authorization = "bearer \(session.token)"
-        var request = URLRequest(url: session.endpoint.appendingPathComponent(target.path(in: session)))
+        var request = URLRequest(url: session.base.appendingPathComponent(target.path(in: session)))
         request.addValue(authorization, forHTTPHeaderField: "Authorization")
         request.httpMethod = "GET"
         return request

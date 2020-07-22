@@ -13,13 +13,15 @@ public protocol ProcessorGroup {
     var name: String { get }
     var processors: [ProcessorBase] { get }
 
-    func path(for target: Target, in session: Session) -> String
+    func path(for target: ResourceResolver, in session: Session) -> String
     func decode(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus
     func unprocessed(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus
 }
 
 public extension ProcessorGroup {
-    func path(for target: Target, in session: Session) -> String {
+    var name: String { "untitled group" }
+    
+    func path(for target: ResourceResolver, in session: Session) -> String {
         return target.path(in: session)
     }
     
@@ -47,4 +49,12 @@ public extension ProcessorGroup {
         throw Session.Errors.unexpectedResponse(response.statusCode)
     }
 
+}
+
+// For brevity, we can just use a list of processors as a ProcessorGroup.
+// It will have a default name, and no special `unprocessed` handler, but for simple
+// cases that might be enough.
+typealias ProcessorList = [Processor]
+extension ProcessorList: ProcessorGroup {
+    public var processors: [ProcessorBase] { self }
 }

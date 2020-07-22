@@ -10,9 +10,9 @@ import FoundationNetworking
 final class JSONSessionTests: XCTestCase {
     var result: Any?
     var resultExpectation: XCTestExpectation!
-    let target = FixedTarget("blah")
-    let endpoint = URL(string: "https://api.github.com")!
-    var url: URL { endpoint.appendingPathComponent(target.path) }
+    let target = Resource("blah")
+    let base = URL(string: "https://api.github.com")!
+    var url: URL { base.appendingPathComponent(target.path) }
 
     struct ExamplePayload: Codable, Equatable {
         let name: String
@@ -87,8 +87,8 @@ final class JSONSessionTests: XCTestCase {
     }
 
     func waitForResult(fetcher: DataFetcher, group: ProcessorGroup, count: Int = 1) {
-        let session = Session(endpoint: endpoint, token: "", fetcher: fetcher)
-        session.schedule(target: target, processors: group, repeatingEvery: count == 1 ? nil : 0.1)
+        let session = Session(base: base, token: "", fetcher: fetcher)
+        session.poll(target: target, processors: group, repeatingEvery: count == 1 ? nil : 0.1)
         resultExpectation = expectation(description: "Got Result")
         wait(for: [resultExpectation], timeout: 1.0)
     }

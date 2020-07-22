@@ -16,11 +16,11 @@
 
 # JSONSession
 
-Support for periodic polling of a server endpoint.
+Support for periodic polling of a JSON REST resource.
 
 Authentication is passed in the `Authorization` header, as `bearer <token>`. 
 
-The response is expected to contain an `Etag` header field, which represents the current state of the endpoint, and is passed back to the server with subsequent requests.
+The response is expected to contain an `Etag` header field, which represents the current state of the resource, and is passed back to the server with subsequent requests.
 
 This mechanism allows efficient polling of the server for changes, and can be a workaround for rate-limiting (where requests that didn't pick up any change in state don't count towards the rate limit).
 
@@ -31,6 +31,50 @@ When a request is sent, it is passed a `ProcessorGroup` which contains a list of
 When a response comes back, it is matched against each `Processor` in turn, matching against the HTTP status code. If a processor supports the code, it is given a chance to decode the response. 
 
 If a processor fails to decode the response (throws an error), matching is continued unless the list of processors is exhausted. The first successful match ends this process. If all processors are exhausted without success, then the `unprocessed` method of the `ProcessorGroup` is called; this can be used for catch-all error handling.
+
+## Example
+
+This simple example polls the endpoint `https://some.endpoint/v1/` for the resource  `some/rest/resource`.
+
+When something has changed, a JSON response will be sent back. If the HTTP status code is one that we expect, we will decode the JSON into a Swift object, and call one of our Processor objects with it.
+
+```swift
+/// if the response is 200, the server will send us an item
+struct ItemProcessor: Processor {
+    struct Item: Decodable {
+        let name: String
+    }
+
+    let codes = [200]
+    func process(_ item: Item, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
+        print("Received item \(item.name)")
+        return .inherited
+    }
+}
+
+/// if the response is 400, the server will send us an error
+struct ErrorProcessor: Processor {
+    struct Error: Decodable {
+        let error: String
+    }
+
+    let codes = [400]
+    func process(_ payload: Error, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
+        print("Something went wrong: \(payload.error)")
+        return .inherited
+    }
+}
+
+// make a session for the service we're targetting, supplying the authorization token
+let session = Session(base: URL(string: "https://some.endpoint/v1/")!, token: "<api-token>")
+
+// schedule polling of some REST resource
+session.poll(target: Resource("some/rest/request"), processors: [ItemProcessor(), ErrorProcessor()], repeatingEvery: 1.0)
+
+// the endpoint will be queried repeatedly by the session
+// when an expected response comes back, the response will be decoded and one of our processor objects will be called to process it
+RunLoop.main.run()
+```
 
 
 ### Requirements
