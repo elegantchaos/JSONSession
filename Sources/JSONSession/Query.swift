@@ -9,10 +9,6 @@ import Foundation
 import FoundationNetworking
 #endif
 
-public protocol QueryResponse: Codable {
-    
-}
-
 public struct Query {
     let name: String
     let query: (ResourceResolver, Session) -> String
