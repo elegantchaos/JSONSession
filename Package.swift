@@ -1,4 +1,4 @@
-// swift-tools-version:5.2
+// swift-tools-version:5.3
 
 import PackageDescription
 
@@ -21,9 +21,11 @@ let package = Package(
     targets: [
         .target(
             name: "JSONSession",
-            dependencies: ["Coercion", "DataFetcher", "Logger"]),
+            dependencies: ["Coercion", "DataFetcher", "Logger"]
+        ),
         .testTarget(
             name: "JSONSessionTests",
-            dependencies: ["JSONSession", "XCTestExtensions"]),
+            dependencies: ["JSONSession", "XCTestExtensions"]
+        ),
     ]
 )
