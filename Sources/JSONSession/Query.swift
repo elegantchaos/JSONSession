@@ -9,7 +9,7 @@ import Foundation
 import FoundationNetworking
 #endif
 
-protocol QueryResponse: Codable {
+public protocol QueryResponse: Codable {
     
 }
 

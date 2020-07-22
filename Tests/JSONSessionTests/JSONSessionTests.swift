@@ -24,24 +24,22 @@ final class JSONSessionTests: XCTestCase {
     }
     
     struct PayloadProcessor: Processor {
-        typealias Payload = ExamplePayload
         var name = "Test"
         var codes: [Int] = [200]
         var callback: (ExamplePayload) -> RepeatStatus
         
-        func process(decoded: Decodable, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
-            return callback(decoded as! ExamplePayload)
+        func process(_ payload: ExamplePayload, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
+            return callback(payload)
         }
     }
 
     struct ErrorProcessor: Processor {
-        typealias Payload = ExampleError
         let name = "Test"
         let codes: [Int] = [404]
         var callback: (ExampleError) -> Void
         
-        func process(decoded: Decodable, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
-            callback(decoded as! ExampleError)
+        func process(_ payload: ExampleError, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
+            callback(payload)
             return .inherited
         }
     }
@@ -85,12 +83,16 @@ final class JSONSessionTests: XCTestCase {
     
     func waitForResult(fetcher: DataFetcher, count: Int = 1) {
         let group = Group(target: count) { result in self.gotResult(result) }
+        waitForResult(fetcher: fetcher, group: group, count: count)
+    }
+
+    func waitForResult(fetcher: DataFetcher, group: ProcessorGroup, count: Int = 1) {
         let session = Session(endpoint: endpoint, token: "", fetcher: fetcher)
         session.schedule(target: target, processors: group, repeatingEvery: count == 1 ? nil : 0.1)
         resultExpectation = expectation(description: "Got Result")
         wait(for: [resultExpectation], timeout: 1.0)
     }
-    
+
     func testPayload() {
         let payload = ExamplePayload(name: "test")
         let fetcher = MockDataFetcher(for: url, return: payload, withStatus: 200)
@@ -117,4 +119,17 @@ final class JSONSessionTests: XCTestCase {
         waitForResult(fetcher: fetcher, count: 3)
         XCTAssertEqual(result as? ExamplePayload, payload)
     }
+    
+    func testProcessorAsGroup() {
+        let payload = ExamplePayload(name: "test")
+        let processor = PayloadProcessor() { result in
+            self.gotResult(result)
+            return .cancel
+        }
+        
+        let fetcher = MockDataFetcher(for: url, return: payload, withStatus: 200)
+        waitForResult(fetcher: fetcher, group: processor)
+        XCTAssertEqual(result as? ExamplePayload, payload)
+    }
+
 }

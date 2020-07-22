@@ -23,19 +23,30 @@ public enum RepeatStatus {
     }
 }
 
-public protocol ProcessorBase {
+public protocol ProcessorBase: ProcessorGroup {
     var name: String { get }
     var codes: [Int] { get }
     func decode(data: Data, with decoder: JSONDecoder) throws -> Decodable
     func process(decoded: Decodable, response: HTTPURLResponse, in session: Session) -> RepeatStatus
 }
 
+extension ProcessorBase {
+    var processors: [ProcessorBase] { return [self] }
+}
+
 public protocol Processor: ProcessorBase {
     associatedtype Payload: Decodable
+    associatedtype SessionType: Session
+    func process(_ payload: Payload, response: HTTPURLResponse, in session: SessionType) -> RepeatStatus
 }
 
 public extension Processor {
     func decode(data: Data, with decoder: JSONDecoder) throws -> Decodable {
         return try decoder.decode(Payload.self, from: data)
     }
- }
+    
+    func process(decoded: Decodable, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
+        return process(decoded as! Payload, response: response, in: session as! SessionType)
+    }
+}
+

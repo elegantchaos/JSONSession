@@ -20,6 +20,7 @@ extension TimeInterval {
         return .nanoseconds(Int(self * 1000000000.0))
     }
 }
+
 public enum ResponseState {
     case updated
     case unchanged
@@ -68,6 +69,7 @@ open class Session {
     }
 
     func sendRequest(target: Target, processors: ProcessorGroup, tag: String? = nil, repeatingEvery: TimeInterval? = nil) {
+        // TODO: add a SessionSession which contains the session and the target. Pass that to the processor group instead of self. This allows processors to read the target, and allows custom target objects to store state.
         var request = self.request(for: target, processors: processors)
         if let tag = tag {
             request.addValue(tag, forHTTPHeaderField: "If-None-Match")

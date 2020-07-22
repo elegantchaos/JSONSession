@@ -25,6 +25,16 @@ The response is expected to contain an `Etag` header field, which represents the
 
 This mechanism allows efficient polling of the server for changes, and can be a workaround for rate-limiting (where requests that didn't pick up any change in state don't count towards the rate limit).
 
+## Parsing Responses
+
+When a request is sent, it is passed a `ProcessorGroup` which contains a list of `Processor` objects. 
+
+When a response comes back, it is matched against each `Processor` in turn, matching against the HTTP status code. If a processor supports the code, it is given a chance to decode the response. 
+
+If a processor fails to decode the response (throws an error), matching is continued unless the list of processors is exhausted. The first successful match ends this process. If all processors are exhausted without success, then the `unprocessed` method of the `ProcessorGroup` is called; this can be used for catch-all error handling.
+
+
+
 ## Made For Github
 
 This is a generalisation of some code I built to access the Github API, and is used by [Octoid](https://github.com/elegantchaos/Octoid) which is a more general Github library.
