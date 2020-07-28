@@ -10,22 +10,37 @@ import FoundationNetworking
 #endif
 
 public protocol ProcessorGroup {
+    
+    /// Name of the resource type we process.
     var name: String { get }
+    
+    /// Individual processors which match against HTTP responses.
     var processors: [ProcessorBase] { get }
-
+    
+    /// Is this group actually a single processor. Used to tailor the logging messages.
+    var groupIsProcessor: Bool { get }
+    
+    /// Path the to resource we process.
     func path(for target: ResourceResolver, in session: Session) -> String
+    
+    /// Decode a response.
     func decode(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus
+    
+    /// Handle an unprocessed response.
     func unprocessed(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus
 }
 
 public extension ProcessorGroup {
-    var name: String { "untitled group" }
-    
+    var name: String { "untitled group" }   // Default name
+    var groupIsProcessor: Bool { false }    // Normally a group contains individual processors.
+
     func path(for target: ResourceResolver, in session: Session) -> String {
+        // By default, just use the target's path
         return target.path(in: session)
     }
     
     func decode(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus {
+        // Decode the response as JSON, and try to pass it to a processor which handles the http response code.
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let code = response.statusCode
@@ -34,7 +49,7 @@ public extension ProcessorGroup {
                 do {
                     let decoded = try processor.decode(data: data, with: decoder)
                     let status = processor.process(decoded: decoded, response: response, in: session)
-                    sessionChannel.log("Processed \(name) with \(processor.name). Repeat status: \(status).")
+                    sessionChannel.log(processedMessage(processor: processor, status: status))
                     return status
                 } catch {
                     sessionChannel.log("Error thrown:\n- query: \(name)\n- target: \(response.url!)\n- processor: \(processor.name)\n- error: \(error)\n")
@@ -42,13 +57,20 @@ public extension ProcessorGroup {
             }
         }
         
+        // Nothing matched or succeeded.
         return try unprocessed(response: response, data: data, in: session)
     }
     
     func unprocessed(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus {
+        // By default just throw an error.
         throw Session.Errors.unexpectedResponse(response.statusCode)
     }
 
+    /// Formatted message for logging.
+    fileprivate func processedMessage(processor: ProcessorBase, status: RepeatStatus) -> String {
+        let nameInfo = groupIsProcessor ? name : "\(name) using \(processor.name)"
+        return "Processed \(nameInfo). Repeat status: \(status)."
+    }
 }
 
 // For brevity, we can just use a list of processors as a ProcessorGroup.
@@ -57,4 +79,5 @@ public extension ProcessorGroup {
 typealias ProcessorList = [Processor]
 extension ProcessorList: ProcessorGroup {
     public var processors: [ProcessorBase] { self }
+    public var groupIsProcessor: Bool { true }
 }

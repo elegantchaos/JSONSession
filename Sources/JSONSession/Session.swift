@@ -28,6 +28,18 @@ public enum ResponseState {
     case other
 }
 
+extension String.StringInterpolation {
+    mutating func appendInterpolation(seconds: TimeInterval) {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.usesSignificantDigits = true
+        formatter.maximumSignificantDigits = 2
+        if let result = formatter.string(from: seconds as NSNumber) {
+            appendLiteral("\(result) seconds")
+        }
+    }
+}
+
 open class Session {
     public let fetcher: DataFetcher
     public let base: URL
@@ -43,12 +55,17 @@ open class Session {
         self.fetcher = fetcher
     }
     
+    fileprivate func pollingLogMessage(processors: ProcessorGroup, deadline: DispatchTime, repeatingEvery: TimeInterval?) -> String {
+        let distance = DispatchTime.now().distance(to: deadline).asTimeInterval
+        let timeInfo = distance < 0 ? "now." : "in \(seconds: distance)."
+        let repeatInfo = repeatingEvery == nil ? "" : " Will repeat in \(seconds: repeatingEvery!)."
+        return "Polling for \(processors.name) \(timeInfo)\(repeatInfo)"
+    }
     
     public func poll(target: ResourceResolver, processors: ProcessorGroup, for deadline: DispatchTime = DispatchTime.now(), tag: String? = nil, repeatingEvery: TimeInterval? = nil) {
-        let distance = DispatchTime.now().distance(to: deadline)
-        sessionChannel.log("Scheduled \(processors.name) in \(distance)")
+        sessionChannel.log(pollingLogMessage(processors: processors, deadline: deadline, repeatingEvery: repeatingEvery))
         DispatchQueue.global(qos: .background).asyncAfter(deadline: deadline) {
-            self.sendRequest(target: target, processors: processors, repeatingEvery: repeatingEvery)
+            self.sendRequest(resource: target, processors: processors, repeatingEvery: repeatingEvery)
         }
     }
         
@@ -68,9 +85,9 @@ open class Session {
         return request
     }
 
-    func sendRequest(target: ResourceResolver, processors: ProcessorGroup, tag: String? = nil, repeatingEvery: TimeInterval? = nil) {
+    func sendRequest(resource: ResourceResolver, processors: ProcessorGroup, tag: String? = nil, repeatingEvery: TimeInterval? = nil) {
         // TODO: add a SessionSession which contains the session and the target. Pass that to the processor group instead of self. This allows processors to read the target, and allows custom target objects to store state.
-        var request = self.request(for: target, processors: processors)
+        var request = self.request(for: resource, processors: processors)
         if let tag = tag {
             request.addValue(tag, forHTTPHeaderField: "If-None-Match")
         }
@@ -80,7 +97,7 @@ open class Session {
             var shouldRepeat = repeatingEvery != nil
             var repeatInterval = repeatingEvery ?? self.defaultInterval
 
-            networkingChannel.log("got response for \(target)")
+            networkingChannel.log("got response for \(resource)")
             
             switch result {
             case .failure(let error):
@@ -96,15 +113,18 @@ open class Session {
                     }
                     
                     if let seconds = response.value(forHTTPHeaderField: "X-Poll-Interval")?.asDouble {
-                        repeatInterval = max(repeatInterval, seconds)
-                        networkingChannel.log("repeat interval \(repeatInterval) (capped at \(seconds))")
+                        let cappedInterval = max(repeatInterval, seconds)
+                        if cappedInterval != repeatInterval {
+                            networkingChannel.log("capped repeat interval of \(repeatInterval) to X-Poll-Interval \(cappedInterval)")
+                            repeatInterval = cappedInterval
+                        }
                     }
 
                     let status = try processors.decode(response: response, data: data, in: self)
                     shouldRepeat = status.shouldRepeat(current: shouldRepeat)
 
                 } catch {
-                    sessionChannel.log("Error thrown:\n- query: \(processors.name)\n- target: \(target)\n- processor: \(processors.name)\n- error: \(error)\n")
+                    sessionChannel.log("Error thrown:\n- query: \(processors.name)\n- target: \(resource)\n- processor: \(processors.name)\n- error: \(error)\n")
                     sessionChannel.log("- data: \(data.prettyPrinted)\n\n")
                 }
 
@@ -113,7 +133,7 @@ open class Session {
             
             if shouldRepeat {
                 let nextRepeat = DispatchTime.now().advanced(by: repeatInterval.asDispatchTimeInterval)
-                self.poll(target: target, processors: processors, for: nextRepeat, tag: updatedTag, repeatingEvery: repeatingEvery)
+                self.poll(target: resource, processors: processors, for: nextRepeat, tag: updatedTag, repeatingEvery: repeatingEvery)
             }
             
             DispatchQueue.main.async {
@@ -122,7 +142,7 @@ open class Session {
         }
         
         DispatchQueue.main.async {
-            sessionChannel.log("Sending \(processors.name) for \(target) (\(request))")
+            sessionChannel.log("Requesting \(processors.name) for \(resource) (\(request))")
             self.tasks.append(task)
             task.resume()
         }

@@ -5,6 +5,27 @@
 
 import Foundation
 
+extension DispatchTimeInterval {
+    var asTimeInterval: TimeInterval {
+        switch self {
+        case .seconds(let value):
+            return TimeInterval(value)
+        case .milliseconds(let value):
+            return TimeInterval(value)*0.001
+        case .microseconds(let value):
+            return TimeInterval(value)*0.000001
+        case .nanoseconds(let value):
+            return TimeInterval(value)*0.000000001
+
+        case .never:
+            return .infinity
+            
+        @unknown default:
+            return .infinity
+        }
+    }
+}
+
 extension DispatchTime {
     public func distance_shim(to other: DispatchTime) -> DispatchTimeInterval {
         let diff = Int(other.uptimeNanoseconds) - Int(uptimeNanoseconds)

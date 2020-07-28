@@ -13,7 +13,7 @@ let package = Package(
             targets: ["JSONSession"]),
     ],
     dependencies: [
-         .package(url: "https://github.com/elegantchaos/Coercion.git", from: "1.0.0"),
+         .package(url: "https://github.com/elegantchaos/Coercion.git", from: "1.0.3"),
          .package(url: "https://github.com/elegantchaos/DataFetcher.git", from: "1.0.2"),
          .package(url: "https://github.com/elegantchaos/Logger.git", from: "1.5.5"),
          .package(url: "https://github.com/elegantchaos/XCTestExtensions.git", from: "1.0.0"),
