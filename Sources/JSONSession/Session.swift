@@ -12,8 +12,8 @@ import Logger
 import FoundationNetworking
 #endif
 
-public let sessionChannel = Channel("com.elegantchaos.jsonsession.session")
-public let networkingChannel = Channel("com.elegantchaos.jsonsession.networking")
+public let sessionChannel = Channel("com.elegantchaos.jsonsession.Session")
+public let networkingChannel = Channel("com.elegantchaos.jsonsession.Networking")
 
 extension TimeInterval {
     var asDispatchTimeInterval: DispatchTimeInterval {
@@ -55,17 +55,15 @@ open class Session {
         self.fetcher = fetcher
     }
     
-    fileprivate func pollingLogMessage(processors: ProcessorGroup, deadline: DispatchTime, repeatingEvery: TimeInterval?) -> String {
-        let distance = DispatchTime.now().distance(to: deadline).asTimeInterval
-        let timeInfo = distance < 0 ? "now." : "in \(seconds: distance)."
-        let repeatInfo = repeatingEvery == nil ? "" : " Will repeat in \(seconds: repeatingEvery!)."
-        return "Polling for \(processors.name) \(timeInfo)\(repeatInfo)"
+    public func poll(target: ResourceResolver, processors: ProcessorGroup, for deadline: DispatchTime = DispatchTime.now(), tag: String? = nil, repeatingEvery: TimeInterval? = nil) {
+        let request = Request(target: target, processors: processors, tag: tag, repeating: repeatingEvery != nil, interval: repeatingEvery ?? defaultInterval)
+        poll(request, deadline: deadline)
     }
     
-    public func poll(target: ResourceResolver, processors: ProcessorGroup, for deadline: DispatchTime = DispatchTime.now(), tag: String? = nil, repeatingEvery: TimeInterval? = nil) {
-        sessionChannel.log(pollingLogMessage(processors: processors, deadline: deadline, repeatingEvery: repeatingEvery))
+    func poll(_ request: Request, deadline: DispatchTime) {
+        request.log(deadline: deadline)
         DispatchQueue.global(qos: .background).asyncAfter(deadline: deadline) {
-            self.sendRequest(resource: target, processors: processors, repeatingEvery: repeatingEvery)
+            self.sendRequest(request: request)
         }
     }
         
@@ -76,64 +74,21 @@ open class Session {
         case unexpectedResponse(Int)
     }
     
-    func request(for target: ResourceResolver, processors: ProcessorGroup) -> URLRequest {
-        let authorization = "bearer \(token)"
-        let path = processors.path(for: target, in: self)
-        var request = URLRequest(url: base.appendingPathComponent(path))
-        request.addValue(authorization, forHTTPHeaderField: "Authorization")
-        request.httpMethod = "GET"
-        return request
+    func cancel() {
+        for task in tasks {
+            task.cancel()
+        }
+        tasks = []
     }
 
-    func sendRequest(resource: ResourceResolver, processors: ProcessorGroup, tag: String? = nil, repeatingEvery: TimeInterval? = nil) {
+    func sendRequest(request: Request) {
         // TODO: add a SessionSession which contains the session and the target. Pass that to the processor group instead of self. This allows processors to read the target, and allows custom target objects to store state.
-        var request = self.request(for: resource, processors: processors)
-        if let tag = tag {
-            request.addValue(tag, forHTTPHeaderField: "If-None-Match")
-        }
-        
-        let task = fetcher.data(for: request) { result, response in
-            var updatedTag = tag
-            var shouldRepeat = repeatingEvery != nil
-            var repeatInterval = repeatingEvery ?? self.defaultInterval
-
-            networkingChannel.log("got response for \(resource)")
-            
-            switch result {
-            case .failure(let error):
-                networkingChannel.log(error)
-                
-            case .success(let data):
-                do {
-                    guard let response = response as? HTTPURLResponse else { throw Errors.badResponse }
-
-                    if let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining"), let tag = response.value(forHTTPHeaderField: "Etag") {
-                        updatedTag = tag
-                        networkingChannel.log("rate limit remaining: \(remaining)")
-                    }
-                    
-                    if let seconds = response.value(forHTTPHeaderField: "X-Poll-Interval")?.asDouble {
-                        let cappedInterval = max(repeatInterval, seconds)
-                        if cappedInterval != repeatInterval {
-                            networkingChannel.log("capped repeat interval of \(repeatInterval) to X-Poll-Interval \(cappedInterval)")
-                            repeatInterval = cappedInterval
-                        }
-                    }
-
-                    let status = try processors.decode(response: response, data: data, in: self)
-                    shouldRepeat = status.shouldRepeat(current: shouldRepeat)
-
-                } catch {
-                    sessionChannel.log("Error thrown:\n- query: \(processors.name)\n- target: \(resource)\n- processor: \(processors.name)\n- error: \(error)\n")
-                    sessionChannel.log("- data: \(data.prettyPrinted)\n\n")
-                }
-
-            }
-            
-            
-            if shouldRepeat {
-                let nextRepeat = DispatchTime.now().advanced(by: repeatInterval.asDispatchTimeInterval)
-                self.poll(target: resource, processors: processors, for: nextRepeat, tag: updatedTag, repeatingEvery: repeatingEvery)
+        let urlRequest = request.urlRequest(for: self)
+        let task = fetcher.data(for: urlRequest) { result, response in
+            request.log(response: response)
+            let updatedRequest = self.processResponse(result, response: response, for: request)
+            if let deadline = updatedRequest.repeatTime {
+                self.poll(updatedRequest, deadline: deadline)
             }
             
             DispatchQueue.main.async {
@@ -142,10 +97,40 @@ open class Session {
         }
         
         DispatchQueue.main.async {
-            sessionChannel.log("Requesting \(processors.name) for \(resource) (\(request))")
             self.tasks.append(task)
             task.resume()
         }
+    }
+    
+    func processResponse(_ result: Result<Data,Error>, response: URLResponse?, for request: Request) -> Request {
+        switch result {
+        case .failure(let error):
+            networkingChannel.log(error)
+            
+        case .success(let data):
+            do {
+                guard let response = response as? HTTPURLResponse else { throw Errors.badResponse }
+
+                var updatedRequest = request
+                if let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining"), let tag = response.value(forHTTPHeaderField: "Etag") {
+                    updatedRequest.tag = tag
+                    networkingChannel.log("rate limit remaining: \(remaining)")
+                }
+                
+                if let seconds = response.value(forHTTPHeaderField: "X-Poll-Interval")?.asDouble {
+                    updatedRequest.capInterval(to: seconds)
+                }
+
+                let status = try request.processors.decode(response: response, data: data, for: request, in: self)
+                updatedRequest.updateRepeat(status: status)
+                return updatedRequest
+
+            } catch {
+                request.log(error: error, data: data)
+            }
+        }
+        
+        return request
     }
 }
 
@@ -173,7 +158,7 @@ fileprivate func example() {
         }
 
         let codes = [200]
-        func process(_ item: Item, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
+        func process(_ item: Item, response: HTTPURLResponse, for request: Request, in session: Session) -> RepeatStatus {
             print("Received item \(item.name)")
             return .inherited
         }
@@ -186,7 +171,7 @@ fileprivate func example() {
         }
 
         let codes = [400]
-        func process(_ payload: Error, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
+        func process(_ payload: Error, response: HTTPURLResponse, for request: Request, in session: Session) -> RepeatStatus {
             print("Something went wrong: \(payload.error)")
             return .inherited
         }

@@ -24,10 +24,7 @@ public protocol ProcessorGroup {
     func path(for target: ResourceResolver, in session: Session) -> String
     
     /// Decode a response.
-    func decode(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus
-    
-    /// Handle an unprocessed response.
-    func unprocessed(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus
+    func decode(response: HTTPURLResponse, data: Data, for request: Request, in session: Session) throws -> RepeatStatus
 }
 
 public extension ProcessorGroup {
@@ -39,7 +36,7 @@ public extension ProcessorGroup {
         return target.path(in: session)
     }
     
-    func decode(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus {
+    func decode(response: HTTPURLResponse, data: Data, for request: Request, in session: Session) throws -> RepeatStatus {
         // Decode the response as JSON, and try to pass it to a processor which handles the http response code.
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
@@ -48,7 +45,7 @@ public extension ProcessorGroup {
             if processor.codes.contains(code) {
                 do {
                     let decoded = try processor.decode(data: data, with: decoder)
-                    let status = processor.process(decoded: decoded, response: response, in: session)
+                    let status = processor.process(decoded: decoded, response: response, for: request, in: session)
                     sessionChannel.log(processedMessage(processor: processor, status: status))
                     return status
                 } catch {
@@ -58,14 +55,9 @@ public extension ProcessorGroup {
         }
         
         // Nothing matched or succeeded.
-        return try unprocessed(response: response, data: data, in: session)
-    }
-    
-    func unprocessed(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus {
-        // By default just throw an error.
         throw Session.Errors.unexpectedResponse(response.statusCode)
     }
-
+    
     /// Formatted message for logging.
     fileprivate func processedMessage(processor: ProcessorBase, status: RepeatStatus) -> String {
         let nameInfo = groupIsProcessor ? name : "\(name) using \(processor.name)"

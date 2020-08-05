@@ -13,21 +13,13 @@ public enum RepeatStatus {
     case request
     case cancel
     case inherited
-
-    func shouldRepeat(current: Bool) -> Bool {
-        switch self {
-            case .request:      return true
-            case .cancel:       return false
-            case .inherited:    return current
-        }
-    }
 }
 
 public protocol ProcessorBase: ProcessorGroup {
     var name: String { get }
     var codes: [Int] { get }
     func decode(data: Data, with decoder: JSONDecoder) throws -> Decodable
-    func process(decoded: Decodable, response: HTTPURLResponse, in session: Session) -> RepeatStatus
+    func process(decoded: Decodable, response: HTTPURLResponse, for request: Request, in session: Session) -> RepeatStatus
 }
 
 extension ProcessorBase {
@@ -38,7 +30,7 @@ extension ProcessorBase {
 public protocol Processor: ProcessorBase {
     associatedtype Payload: Decodable
     associatedtype SessionType: Session
-    func process(_ payload: Payload, response: HTTPURLResponse, in session: SessionType) -> RepeatStatus
+    func process(_ payload: Payload, response: HTTPURLResponse, for request: Request, in session: SessionType) -> RepeatStatus
 }
 
 public extension Processor {
@@ -46,8 +38,8 @@ public extension Processor {
         return try decoder.decode(Payload.self, from: data)
     }
     
-    func process(decoded: Decodable, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
-        return process(decoded as! Payload, response: response, in: session as! SessionType)
+    func process(decoded: Decodable, response: HTTPURLResponse, for request: Request, in session: Session) -> RepeatStatus {
+        return process(decoded as! Payload, response: response, for: request, in: session as! SessionType)
     }
 }
 
