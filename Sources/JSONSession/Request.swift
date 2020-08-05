@@ -6,7 +6,7 @@
 import Foundation
 
 public struct Request {
-    let target: ResourceResolver
+    public let target: ResourceResolver
     let processors: ProcessorGroup
     var tag: String?
     var repeating: Bool
