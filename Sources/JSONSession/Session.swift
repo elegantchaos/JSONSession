@@ -56,7 +56,7 @@ open class Session {
     }
     
     public func poll(target: ResourceResolver, processors: ProcessorGroup, for deadline: DispatchTime = DispatchTime.now(), tag: String? = nil, repeatingEvery: TimeInterval? = nil) {
-        let request = Request(target: target, processors: processors, tag: tag, repeating: repeatingEvery != nil, interval: repeatingEvery ?? defaultInterval)
+        let request = Request(resource: target, processors: processors, tag: tag, repeating: repeatingEvery != nil, interval: repeatingEvery ?? defaultInterval)
         poll(request, deadline: deadline)
     }
     

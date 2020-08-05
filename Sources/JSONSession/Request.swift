@@ -6,7 +6,7 @@
 import Foundation
 
 public struct Request {
-    public let target: ResourceResolver
+    public let resource: ResourceResolver
     let processors: ProcessorGroup
     var tag: String?
     var repeating: Bool
@@ -34,7 +34,7 @@ public struct Request {
     
     func urlRequest(for session: Session) -> URLRequest {
         let authorization = "bearer \(session.token)"
-        let path = processors.path(for: target, in: session)
+        let path = processors.path(for: resource, in: session)
         var request = URLRequest(url: session.base.appendingPathComponent(path))
         request.addValue(authorization, forHTTPHeaderField: "Authorization")
         request.httpMethod = "GET"
@@ -43,7 +43,7 @@ public struct Request {
             request.addValue(tag, forHTTPHeaderField: "If-None-Match")
         }
 
-        sessionChannel.log("Requesting \(processors.name) for \(target) (\(request))")
+        sessionChannel.log("Requesting \(processors.name) for \(resource) (\(request))")
         return request
     }
 
@@ -55,13 +55,13 @@ public struct Request {
     }
     
     func log(error: Error, data: Data) {
-        sessionChannel.log("Error thrown:\n- query: \(processors.name)\n- target: \(target)\n- processor: \(processors.name)\n- error: \(error)\n")
+        sessionChannel.log("Error thrown:\n- query: \(processors.name)\n- target: \(resource)\n- processor: \(processors.name)\n- error: \(error)\n")
         sessionChannel.log("- data: \(data.prettyPrinted)\n\n")
     }
     
     func log(response: URLResponse?) {
         if let _ = response {
-            networkingChannel.log("got response for \(target)")
+            networkingChannel.log("got response for \(resource)")
         }
     }
 }
