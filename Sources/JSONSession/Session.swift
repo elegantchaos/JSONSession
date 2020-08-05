@@ -12,33 +12,8 @@ import Logger
 import FoundationNetworking
 #endif
 
-public let sessionChannel = Channel("com.elegantchaos.jsonsession.Session")
-public let networkingChannel = Channel("com.elegantchaos.jsonsession.Networking")
-
-extension TimeInterval {
-    var asDispatchTimeInterval: DispatchTimeInterval {
-        return .nanoseconds(Int(self * 1000000000.0))
-    }
-}
-
-public enum ResponseState {
-    case updated
-    case unchanged
-    case error
-    case other
-}
-
-extension String.StringInterpolation {
-    mutating func appendInterpolation(seconds: TimeInterval) {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.usesSignificantDigits = true
-        formatter.maximumSignificantDigits = 2
-        if let result = formatter.string(from: seconds as NSNumber) {
-            appendLiteral("\(result) seconds")
-        }
-    }
-}
+public let sessionChannel = Channel("com.elegantchaos.jsonsession.JSONSession")
+public let networkingChannel = Channel("com.elegantchaos.jsonsession.JSONNetworking")
 
 open class Session {
     public let fetcher: DataFetcher
@@ -59,28 +34,30 @@ open class Session {
         let request = Request(resource: target, processors: processors, tag: tag, repeating: repeatingEvery != nil, interval: repeatingEvery ?? defaultInterval)
         poll(request, deadline: deadline)
     }
-    
-    func poll(_ request: Request, deadline: DispatchTime) {
-        request.log(deadline: deadline)
-        DispatchQueue.global(qos: .background).asyncAfter(deadline: deadline) {
-            self.sendRequest(request: request)
+
+    public func cancel() {
+        for task in tasks {
+            task.cancel()
         }
+        tasks = []
     }
-        
+}
+
+internal extension Session {
     enum Errors: Error {
         case badResponse
         case missingData
         case apiError(Failure)
         case unexpectedResponse(Int)
     }
-    
-    func cancel() {
-        for task in tasks {
-            task.cancel()
-        }
-        tasks = []
-    }
 
+    func poll(_ request: Request, deadline: DispatchTime) {
+        request.log(deadline: deadline)
+        DispatchQueue.global(qos: .background).asyncAfter(deadline: deadline) {
+            self.sendRequest(request: request)
+        }
+    }
+    
     func sendRequest(request: Request) {
         // TODO: add a SessionSession which contains the session and the target. Pass that to the processor group instead of self. This allows processors to read the target, and allows custom target objects to store state.
         let urlRequest = request.urlRequest(for: self)
@@ -133,7 +110,6 @@ open class Session {
         return request
     }
 }
-
 
 public extension Data {
     var prettyPrinted: String {

@@ -50,6 +50,9 @@ public extension ProcessorGroup {
                     return status
                 } catch {
                     sessionChannel.log("Error thrown:\n- query: \(name)\n- target: \(response.url!)\n- processor: \(processor.name)\n- error: \(error)\n")
+                    if let string = String(data: data, encoding: .utf8) {
+                        sessionChannel.log("Data was: \(string).")
+                    }
                 }
             }
         }

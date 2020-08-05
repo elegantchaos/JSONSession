@@ -5,6 +5,24 @@
 
 import Foundation
 
+extension String.StringInterpolation {
+    mutating func appendInterpolation(seconds: TimeInterval) {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.usesSignificantDigits = true
+        formatter.maximumSignificantDigits = 2
+        if let result = formatter.string(from: seconds as NSNumber) {
+            appendLiteral("\(result) seconds")
+        }
+    }
+}
+
+extension TimeInterval {
+    var asDispatchTimeInterval: DispatchTimeInterval {
+        return .nanoseconds(Int(self * 1000000000.0))
+    }
+}
+
 extension DispatchTimeInterval {
     var asTimeInterval: TimeInterval {
         switch self {
