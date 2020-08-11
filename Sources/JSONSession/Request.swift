@@ -5,6 +5,10 @@
 
 import Foundation
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
 public struct Request {
     public let resource: ResourceResolver
     let processors: ProcessorGroup
