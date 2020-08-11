@@ -81,7 +81,7 @@ final class JSONSessionTests: XCTestCase {
             self.processors = [
                 PayloadProcessor() { return gotResult($0) },
                 ErrorProcessor() { _ = gotResult($0) },
-                CatchAllProcessor() { gotResult( "Unexpected Result" ) }
+                CatchAllProcessor() { _ = gotResult( "Unexpected Result" ) }
             ]
         }
     }
