@@ -22,7 +22,7 @@ public protocol ProcessorBase: ProcessorGroup {
     func process(decoded: Decodable, response: HTTPURLResponse, for request: Request, in session: Session) -> RepeatStatus
 }
 
-extension ProcessorBase {
+public extension ProcessorBase {
     var name: String { "untitled" }
     var processors: [ProcessorBase] { return [self] }
 }
