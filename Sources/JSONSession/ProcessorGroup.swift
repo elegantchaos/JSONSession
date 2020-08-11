@@ -42,7 +42,8 @@ public extension ProcessorGroup {
         decoder.dateDecodingStrategy = .iso8601
         let code = response.statusCode
         for processor in processors {
-            if processor.codes.contains(code) {
+            let codes = processor.codes
+            if codes.isEmpty || codes.contains(code) {
                 do {
                     let decoded = try processor.decode(data: data, with: decoder)
                     let status = processor.process(decoded: decoded, response: response, for: request, in: session)

@@ -28,7 +28,7 @@ final class JSONSessionTests: XCTestCase {
         var codes: [Int] = [200]
         var callback: (ExamplePayload) -> RepeatStatus
         
-        func process(_ payload: ExamplePayload, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
+        func process(_ payload: ExamplePayload, response: HTTPURLResponse, for request: Request, in session: Session) -> RepeatStatus {
             return callback(payload)
         }
     }
@@ -38,12 +38,26 @@ final class JSONSessionTests: XCTestCase {
         let codes: [Int] = [404]
         var callback: (ExampleError) -> Void
         
-        func process(_ payload: ExampleError, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
+        func process(_ payload: ExampleError, response: HTTPURLResponse, for request: Request, in session: Session) -> RepeatStatus {
             callback(payload)
             return .inherited
         }
     }
 
+    struct CatchAllProcessor: ProcessorBase {
+        var codes: [Int] = []
+        var callback: () -> Void
+
+        func process(decoded: Decodable, response: HTTPURLResponse, for request: Request, in session: Session) -> RepeatStatus {
+            callback()
+            return .inherited
+        }
+
+        func decode(data: Data, with decoder: JSONDecoder) throws -> Decodable {
+            return data
+        }
+    }
+    
     class Group: ProcessorGroup {
         let name = "Example Group"
         let processors: [ProcessorBase]
@@ -66,13 +80,9 @@ final class JSONSessionTests: XCTestCase {
             self.gotResult = gotResult
             self.processors = [
                 PayloadProcessor() { return gotResult($0) },
-                ErrorProcessor() { _ = gotResult($0) }
+                ErrorProcessor() { _ = gotResult($0) },
+                CatchAllProcessor() { gotResult( "Unexpected Result" ) }
             ]
-        }
-        
-        
-        func unprocessed(response: HTTPURLResponse, data: Data, in session: Session) throws -> RepeatStatus {
-            return gotResult("Unprocessed")
         }
     }
     
@@ -110,7 +120,7 @@ final class JSONSessionTests: XCTestCase {
     func testUnknownResponse() {
         let fetcher = MockDataFetcher(for: url, return: "blah", withStatus: 303)
         waitForResult(fetcher: fetcher)
-        XCTAssertEqual(result as? String, "Unprocessed")
+        XCTAssertEqual(result as? String, "Unexpected Result")
     }
     
     func testPolling() {
