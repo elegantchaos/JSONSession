@@ -42,7 +42,8 @@ public struct Request {
         var request = URLRequest(url: session.base.appendingPathComponent(path))
         request.addValue(authorization, forHTTPHeaderField: "Authorization")
         request.httpMethod = "GET"
-
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        
         if let tag = tag {
             request.addValue(tag, forHTTPHeaderField: "If-None-Match")
         }
