@@ -1,11 +1,12 @@
-// swift-tools-version:5.3
+// swift-tools-version:5.6
 
 import PackageDescription
 
 let package = Package(
     name: "JSONSession",
+    
     platforms: [
-        .macOS(.v10_15), .iOS(.v13), .tvOS(.v13), .watchOS(.v5)
+        .macOS(.v10_15), .macCatalyst(.v13), .iOS(.v13), .tvOS(.v13), .watchOS(.v5)
     ],
     products: [
         .library(
@@ -17,6 +18,10 @@ let package = Package(
          .package(url: "https://github.com/elegantchaos/DataFetcher.git", from: "1.0.2"),
          .package(url: "https://github.com/elegantchaos/Logger.git", from: "1.5.5"),
          .package(url: "https://github.com/elegantchaos/XCTestExtensions.git", from: "1.0.0"),
+         
+         // tools
+         .package(url: "https://github.com/elegantchaos/ActionBuilderPlugin.git", from: "1.0.7"),
+         .package(url: "https://github.com/elegantchaos/SwiftFormatterPlugin.git", from: "1.0.3"),
     ],
     targets: [
         .target(
