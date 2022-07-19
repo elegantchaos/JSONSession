@@ -71,7 +71,7 @@ public extension ProcessorGroup {
 // For brevity, we can just use a list of processors as a ProcessorGroup.
 // It will have a default name, and no special `unprocessed` handler, but for simple
 // cases that might be enough.
-typealias ProcessorList = [Processor]
+typealias ProcessorList = [any Processor]
 extension ProcessorList: ProcessorGroup {
     public var processors: [ProcessorBase] { self }
     public var groupIsProcessor: Bool { true }
