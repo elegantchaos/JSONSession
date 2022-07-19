@@ -15,19 +15,19 @@ public struct Request {
     var tag: String?
     var repeating: Bool
     var interval: TimeInterval
-    
+
     var repeatTime: DispatchTime? {
-        return repeating ? DispatchTime.now().advanced(by: interval.asDispatchTimeInterval) : nil
+        repeating ? DispatchTime.now().advanced(by: interval.asDispatchTimeInterval) : nil
     }
-    
+
     mutating func updateRepeat(status: RepeatStatus) {
         switch status {
-            case .request:      repeating = true
-            case .cancel:       repeating = false
-            case .inherited:    break
+            case .request: repeating = true
+            case .cancel: repeating = false
+            case .inherited: break
         }
     }
-    
+
     mutating func capInterval(to seconds: Double) {
         let current = interval
         let interval = max(current, seconds)
@@ -35,7 +35,7 @@ public struct Request {
             networkingChannel.log("capped repeat interval of \(current) to X-Poll-Interval \(interval)")
         }
     }
-    
+
     func urlRequest(for session: Session) -> URLRequest {
         let authorization = "bearer \(session.token)"
         let path = processors.path(for: resource, in: session)
@@ -43,7 +43,7 @@ public struct Request {
         request.addValue(authorization, forHTTPHeaderField: "Authorization")
         request.httpMethod = "GET"
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        
+
         if let tag = tag {
             request.addValue(tag, forHTTPHeaderField: "If-None-Match")
         }
@@ -58,12 +58,12 @@ public struct Request {
         let repeatInfo = repeating ? " Will repeat in \(seconds: interval)." : ""
         sessionChannel.log("Polling for \(processors.name) \(timeInfo)\(repeatInfo)")
     }
-    
+
     func log(error: Error, data: Data) {
         sessionChannel.log("Error thrown:\n- query: \(processors.name)\n- target: \(resource)\n- processor: \(processors.name)\n- error: \(error)\n")
         sessionChannel.log("- data: \(data.prettyPrinted)\n\n")
     }
-    
+
     func log(response: URLResponse?) {
         if let _ = response {
             networkingChannel.log("got response for \(resource)")

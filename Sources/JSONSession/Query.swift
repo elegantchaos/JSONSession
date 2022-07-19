@@ -12,7 +12,7 @@ import FoundationNetworking
 public struct Query {
     let name: String
     let query: (ResourceResolver, Session) -> String
-    
+
     func request(for target: ResourceResolver, in session: Session) -> URLRequest {
         let authorization = "bearer \(session.token)"
         var request = URLRequest(url: session.base.appendingPathComponent(target.path(in: session)))

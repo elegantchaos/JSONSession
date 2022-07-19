@@ -24,7 +24,7 @@ public protocol ProcessorBase: ProcessorGroup {
 
 public extension ProcessorBase {
     var name: String { "untitled" }
-    var processors: [ProcessorBase] { return [self] }
+    var processors: [ProcessorBase] { [self] }
 }
 
 public protocol Processor: ProcessorBase {
@@ -35,11 +35,10 @@ public protocol Processor: ProcessorBase {
 
 public extension Processor {
     func decode(data: Data, with decoder: JSONDecoder) throws -> Decodable {
-        return try decoder.decode(Payload.self, from: data)
+        try decoder.decode(Payload.self, from: data)
     }
-    
+
     func process(decoded: Decodable, response: HTTPURLResponse, for request: Request, in session: Session) -> RepeatStatus {
-        return process(decoded as! Payload, response: response, for: request, in: session as! SessionType)
+        process(decoded as! Payload, response: response, for: request, in: session as! SessionType)
     }
 }
-

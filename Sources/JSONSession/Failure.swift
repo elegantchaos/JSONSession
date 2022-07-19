@@ -8,6 +8,6 @@ import Foundation
 public struct Failure: Codable {
     let message: String
     let documentation_url: String
-    
-    var canIgnore: Bool { return false }
+
+    var canIgnore: Bool { false }
 }

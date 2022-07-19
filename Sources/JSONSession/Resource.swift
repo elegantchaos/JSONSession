@@ -9,6 +9,6 @@ import Foundation
 
 public struct Resource: ResourceResolver {
     let path: String
-    public func path(in session: Session) -> String { return path }
+    public func path(in _: Session) -> String { path }
     public init(_ path: String) { self.path = path }
 }

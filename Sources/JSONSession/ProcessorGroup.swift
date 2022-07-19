@@ -10,32 +10,31 @@ import FoundationNetworking
 #endif
 
 public protocol ProcessorGroup {
-    
     /// Name of the resource type we process.
     var name: String { get }
-    
+
     /// Individual processors which match against HTTP responses.
     var processors: [ProcessorBase] { get }
-    
+
     /// Is this group actually a single processor. Used to tailor the logging messages.
     var groupIsProcessor: Bool { get }
-    
+
     /// Path the to resource we process.
     func path(for target: ResourceResolver, in session: Session) -> String
-    
+
     /// Decode a response.
     func decode(response: HTTPURLResponse, data: Data, for request: Request, in session: Session) throws -> RepeatStatus
 }
 
 public extension ProcessorGroup {
-    var name: String { "untitled group" }   // Default name
-    var groupIsProcessor: Bool { false }    // Normally a group contains individual processors.
+    var name: String { "untitled group" } // Default name
+    var groupIsProcessor: Bool { false } // Normally a group contains individual processors.
 
     func path(for target: ResourceResolver, in session: Session) -> String {
         // By default, just use the target's path
-        return target.path(in: session)
+        target.path(in: session)
     }
-    
+
     func decode(response: HTTPURLResponse, data: Data, for request: Request, in session: Session) throws -> RepeatStatus {
         // Decode the response as JSON, and try to pass it to a processor which handles the http response code.
         let decoder = JSONDecoder()
@@ -57,13 +56,13 @@ public extension ProcessorGroup {
                 }
             }
         }
-        
+
         // Nothing matched or succeeded.
         throw Session.Errors.unexpectedResponse(response.statusCode)
     }
-    
+
     /// Formatted message for logging.
-    fileprivate func processedMessage(processor: ProcessorBase, status: RepeatStatus) -> String {
+    private func processedMessage(processor: ProcessorBase, status: RepeatStatus) -> String {
         let nameInfo = groupIsProcessor ? name : "\(name) using \(processor.name)"
         return "Processed \(nameInfo). Repeat status: \(status)."
     }
