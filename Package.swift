@@ -1,4 +1,4 @@
-// swift-tools-version:6.0
+// swift-tools-version:6.2
 
 import PackageDescription
 
@@ -18,7 +18,7 @@ let package = Package(
     .package(url: "https://github.com/elegantchaos/Logger.git", from: "2.0.1"),
 
     // tools
-    .package(url: "https://github.com/elegantchaos/ActionBuilderPlugin.git", from: "1.0.7"),
+    .package(url: "https://github.com/elegantchaos/ActionBuilderPlugin.git", from: "2.0.1"),
   ],
   targets: [
     .target(
