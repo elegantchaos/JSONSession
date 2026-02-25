@@ -10,49 +10,62 @@ import Foundation
 #endif
 
 /// Group of processors that can decode and handle responses for a resource.
-public protocol ProcessorGroup {
+public protocol ProcessorGroup<Context>: Sendable {
+  /// Context type threaded through response processing.
+  associatedtype Context: Sendable
+
   /// Name of the resource type we process.
   var name: String { get }
 
   /// Individual processors which match against HTTP responses.
-  var processors: [ProcessorBase] { get }
+  var processors: [AnyProcessor<Context>] { get }
 
-  /// Is this group actually a single processor. Used to tailor the logging messages.
+  /// Is this group actually a single processor. Used to tailor logging messages.
   var groupIsProcessor: Bool { get }
 
-  /// Path the to resource we process.
+  /// Path to the resource we process.
   func path(for target: ResourceResolver, in session: Session) -> String
 
-  /// Decode a response.
-  func decode(response: HTTPURLResponse, data: Data, for request: Request, in session: Session)
-    throws -> RepeatStatus
+  /// Decode a response and return repeat behavior.
+  func decode(
+    response: HTTPURLResponse,
+    data: Data,
+    for request: Request<Context>,
+    in context: Context
+  ) async throws -> RepeatStatus
 }
 
 extension ProcessorGroup {
-  public var name: String { "untitled group" }  // Default name
-  public var groupIsProcessor: Bool { false }  // Normally a group contains individual processors.
+  public var name: String { "untitled group" }
+  public var groupIsProcessor: Bool { false }
 
   public func path(for target: ResourceResolver, in session: Session) -> String {
-    // By default, just use the target's path
     target.path(in: session)
   }
 
   public func decode(
-    response: HTTPURLResponse, data: Data, for request: Request, in session: Session
-  ) throws -> RepeatStatus {
-    // Decode the response as JSON, and try to pass it to a processor which handles the http response code.
+    response: HTTPURLResponse,
+    data: Data,
+    for request: Request<Context>,
+    in context: Context
+  ) async throws -> RepeatStatus {
     let decoder = JSONDecoder()
     decoder.dateDecodingStrategy = .iso8601
+
     let code = response.statusCode
     for processor in processors {
-      let codes = processor.codes
-      if codes.isEmpty || codes.contains(code) {
+      let acceptedCodes = processor.codes
+      if acceptedCodes.isEmpty || acceptedCodes.contains(code) {
         do {
           let decoded = try processor.decode(data: data, with: decoder)
-          let status = processor.process(
-            decoded: decoded, response: response, for: request, in: session)
+          let status = try await processor.process(
+            decoded: decoded,
+            response: response,
+            for: request,
+            in: context)
           sessionChannel.log(processedMessage(processor: processor, status: status))
           return status
+
         } catch {
           sessionChannel.log(
             "Error thrown:\n- query: \(name)\n- target: \(response.url!)\n- processor: \(processor.name)\n- error: \(error)\n"
@@ -64,23 +77,22 @@ extension ProcessorGroup {
       }
     }
 
-    // Nothing matched or succeeded.
     throw Session.Errors.unexpectedResponse(response.statusCode)
   }
 
-  /// Formatted message for logging.
-  private func processedMessage(processor: ProcessorBase, status: RepeatStatus) -> String {
+  private func processedMessage(processor: AnyProcessor<Context>, status: RepeatStatus) -> String {
     let nameInfo = groupIsProcessor ? name : "\(name) using \(processor.name)"
     return "Processed \(nameInfo). Repeat status: \(status)."
   }
 }
 
-// For brevity, we can just use a list of processors as a ProcessorGroup.
-// It will have a default name, and no special `unprocessed` handler, but for simple
-// cases that might be enough.
-/// Convenience group alias for an array of typed processors.
-typealias ProcessorList = [any Processor]
-extension ProcessorList: ProcessorGroup {
-  public var processors: [ProcessorBase] { self }
-  public var groupIsProcessor: Bool { true }
+/// Convenience group wrapper for a list of erased processors.
+public struct AnyProcessorGroup<Context: Sendable>: ProcessorGroup {
+  public let name: String
+  public let processors: [AnyProcessor<Context>]
+
+  public init(name: String, processors: [AnyProcessor<Context>]) {
+    self.name = name
+    self.processors = processors
+  }
 }

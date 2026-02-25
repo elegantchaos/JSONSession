@@ -44,7 +44,9 @@ open class Session: @unchecked Sendable {
   var tasks: [ManagedTask] = []
 
   public init(
-    base: URL, token: String, defaultInterval: TimeInterval = 60.0,
+    base: URL,
+    token: String,
+    defaultInterval: TimeInterval = 60.0,
     fetcher: any HTTPDataFetcher = URLSession.shared
   ) {
     self.base = base
@@ -53,15 +55,21 @@ open class Session: @unchecked Sendable {
     self.fetcher = fetcher
   }
 
-  public func poll(
-    target: ResourceResolver, processors: ProcessorGroup,
-    for deadline: DispatchTime = DispatchTime.now(), tag: String? = nil,
+  public func poll<Context: Sendable>(
+    target: ResourceResolver,
+    context: Context,
+    processors: some ProcessorGroup<Context>,
+    for deadline: DispatchTime = DispatchTime.now(),
+    tag: String? = nil,
     repeatingEvery: TimeInterval? = nil
   ) {
     let request = Request(
-      resource: target, processors: processors, tag: tag, repeating: repeatingEvery != nil,
+      resource: target,
+      processors: processors,
+      tag: tag,
+      repeating: repeatingEvery != nil,
       interval: repeatingEvery ?? defaultInterval)
-    poll(request, deadline: deadline)
+    poll(request, context: context, deadline: deadline)
   }
 
   public func cancel() {
@@ -81,7 +89,11 @@ extension Session {
     case unexpectedResponse(Int)
   }
 
-  func poll(_ request: Request, deadline: DispatchTime) {
+  func poll<Context: Sendable>(
+    _ request: Request<Context>,
+    context: Context,
+    deadline: DispatchTime
+  ) {
     request.log(deadline: deadline)
     let managed = ManagedTask()
     tasks.append(managed)
@@ -96,29 +108,31 @@ extension Session {
         try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
       }
       guard !Task.isCancelled, let self else { return }
-      await self.sendRequest(request: request)
+      await self.sendRequest(request: request, context: context)
     }
   }
 
-  func sendRequest(request: Request) async {
-    // TODO: Replace loose Session references in processor callbacks with a focused context value.
+  func sendRequest<Context: Sendable>(request: Request<Context>, context: Context) async {
     let urlRequest = request.urlRequest(for: self)
     do {
       let (data, response) = try await fetcher.data(for: urlRequest)
       request.log(response: response)
-      let updatedRequest = processResponse(.success(data), response: response, for: request)
+      let updatedRequest = await processResponse(.success(data), response: response, for: request, context: context)
       if let deadline = updatedRequest.repeatTime {
-        poll(updatedRequest, deadline: deadline)
+        poll(updatedRequest, context: context, deadline: deadline)
       }
     } catch {
       request.log(response: nil)
-      _ = processResponse(.failure(error), response: nil, for: request)
+      _ = await processResponse(.failure(error), response: nil, for: request, context: context)
     }
   }
 
-  func processResponse(_ result: Result<Data, Error>, response: URLResponse?, for request: Request)
-    -> Request
-  {
+  func processResponse<Context: Sendable>(
+    _ result: Result<Data, Error>,
+    response: URLResponse?,
+    for request: Request<Context>,
+    context: Context
+  ) async -> Request<Context> {
     switch result {
     case .failure(let error):
       networkingChannel.log(error)
@@ -141,8 +155,11 @@ extension Session {
           updatedRequest.capInterval(to: seconds)
         }
 
-        let status = try request.processors.decode(
-          response: response, data: data, for: request, in: self)
+        let status = try await request.processors.decode(
+          response: response,
+          data: data,
+          for: request,
+          in: context)
         updatedRequest.updateRepeat(status: status)
         return updatedRequest
 
@@ -170,48 +187,4 @@ extension Data {
 
     return String(describing: self)
   }
-}
-
-private func example() {
-  /// if the response is 200, the server will send us an item
-  struct ItemProcessor: Processor {
-    struct Item: Decodable {
-      let name: String
-    }
-
-    let codes = [200]
-    func process(_ item: Item, response _: HTTPURLResponse, for _: Request, in _: Session)
-      -> RepeatStatus
-    {
-      print("Received item \(item.name)")
-      return .inherited
-    }
-  }
-
-  /// if the response is 400, the server will send us an error
-  struct ErrorProcessor: Processor {
-    struct Error: Decodable {
-      let error: String
-    }
-
-    let codes = [400]
-    func process(_ payload: Error, response _: HTTPURLResponse, for _: Request, in _: Session)
-      -> RepeatStatus
-    {
-      print("Something went wrong: \(payload.error)")
-      return .inherited
-    }
-  }
-
-  // make a session for the service we're targetting, supplying the authorization token
-  let session = Session(base: URL(string: "https://some.endpoint/v1/")!, token: "<api-token>")
-
-  // schedule polling of some REST resource
-  session.poll(
-    target: Resource("some/rest/request"), processors: [ItemProcessor(), ErrorProcessor()],
-    repeatingEvery: 1.0)
-
-  // the endpoint will be queried repeatedly by the session
-  // when an expected response comes back, the response will be decoded and one of our processor objects will be called to process it
-  RunLoop.main.run()
 }

@@ -10,11 +10,11 @@ import Foundation
 #endif
 
 /// Runtime state for an individual polling request.
-public struct Request: @unchecked Sendable {
+public struct Request<Context: Sendable>: @unchecked Sendable {
   /// Resource being polled.
   public let resource: ResourceResolver
   /// Processor chain used to decode/handle responses.
-  let processors: ProcessorGroup
+  let processors: any ProcessorGroup<Context>
   /// Optional ETag for conditional requests.
   var tag: String?
   /// Indicates whether polling should continue after a response.
@@ -50,7 +50,7 @@ public struct Request: @unchecked Sendable {
     request.httpMethod = "GET"
     request.cachePolicy = .reloadIgnoringLocalCacheData
 
-    if let tag = tag {
+    if let tag {
       request.addValue(tag, forHTTPHeaderField: "If-None-Match")
     }
 

@@ -17,82 +17,91 @@ struct JSONSessionTests {
     base.appendingPathComponent(target.path)
   }
 
-  struct ExamplePayload: Codable, Equatable {
+  struct ExamplePayload: Codable, Equatable, Sendable {
     let name: String
   }
 
-  struct ExampleError: Codable, Equatable {
+  struct ExampleError: Codable, Equatable, Sendable {
     let message: String
     let details: String
   }
 
+  enum TestResult: Sendable, Equatable {
+    case payload(ExamplePayload)
+    case error(ExampleError)
+    case unexpected
+  }
+
+  actor TestContext {
+    let targetCount: Int
+    let done: @MainActor (TestResult?) -> Void
+    var seen = 0
+
+    init(targetCount: Int, done: @escaping @MainActor (TestResult?) -> Void) {
+      self.targetCount = targetCount
+      self.done = done
+    }
+
+    func emit(_ value: TestResult?) async -> RepeatStatus {
+      seen += 1
+      if seen == targetCount {
+        await MainActor.run {
+          done(value)
+        }
+        return .cancel
+      }
+
+      return .request
+    }
+  }
+
   struct PayloadProcessor: Processor {
-    var name = "Test"
-    var codes: [Int] = [200]
-    var callback: (ExamplePayload) -> RepeatStatus
+    typealias Context = TestContext
+    let name = "payload"
+    let codes = [200]
 
     func process(
-      _ payload: ExamplePayload, response _: HTTPURLResponse, for _: Request, in _: Session
-    ) -> RepeatStatus {
-      callback(payload)
+      _ payload: ExamplePayload,
+      response _: HTTPURLResponse,
+      for _: Request<TestContext>,
+      in context: TestContext
+    ) async throws -> RepeatStatus {
+      await context.emit(.payload(payload))
     }
   }
 
   struct ErrorProcessor: Processor {
-    let name = "Test"
-    let codes: [Int] = [404]
-    var callback: (ExampleError) -> Void
+    typealias Context = TestContext
+    let name = "error"
+    let codes = [404]
 
     func process(
-      _ payload: ExampleError, response _: HTTPURLResponse, for _: Request, in _: Session
-    ) -> RepeatStatus {
-      callback(payload)
-      return .inherited
+      _ payload: ExampleError,
+      response _: HTTPURLResponse,
+      for _: Request<TestContext>,
+      in context: TestContext
+    ) async throws -> RepeatStatus {
+      await context.emit(.error(payload))
     }
   }
 
-  struct CatchAllProcessor: ProcessorBase {
-    var codes: [Int] = []
-    var callback: () -> Void
+  struct Group: ProcessorGroup {
+    typealias Context = TestContext
 
-    func process(decoded _: Decodable, response _: HTTPURLResponse, for _: Request, in _: Session)
-      -> RepeatStatus
-    {
-      callback()
-      return .inherited
-    }
-
-    func decode(data: Data, with _: JSONDecoder) throws -> Decodable {
-      data
-    }
-  }
-
-  final class Group: ProcessorGroup {
     let name = "Example Group"
-    let processors: [ProcessorBase]
-
-    init(target: Int, done: @escaping (Any) -> Void) {
-      var count = 0
-      let gotResult: (Any) -> RepeatStatus = { result in
-        count += 1
-        if count == target {
-          done(result)
-          return .cancel
-        } else {
-          return .request
-        }
-      }
-
-      processors = [
-        PayloadProcessor { gotResult($0) },
-        ErrorProcessor { _ = gotResult($0) },
-        CatchAllProcessor { _ = gotResult("Unexpected Result") },
-      ]
-    }
+    let processors: [AnyProcessor<TestContext>] = [
+      PayloadProcessor().eraseToAnyProcessor(),
+      ErrorProcessor().eraseToAnyProcessor(),
+      AnyProcessor(name: "catch-all", codes: []) { _, _ in
+        ()
+      } process: { _, _, _, context in
+        await context.emit(.unexpected)
+      },
+    ]
   }
 
   final class ResultBox {
-    var value: Any?
+    var value: TestResult?
   }
 
   actor MockAsyncFetcher: HTTPDataFetcher {
@@ -118,20 +127,22 @@ struct JSONSessionTests {
     let data = try JSONEncoder().encode(payload)
     let response = try #require(
       HTTPURLResponse(
-        url: url, statusCode: status, httpVersion: nil,
+        url: url,
+        statusCode: status,
+        httpVersion: nil,
         headerFields: nil))
     return (data, response)
   }
 
   func awaitResult(
     timeoutNanoseconds: UInt64 = 1_000_000_000,
-    start: (@escaping @MainActor (Any?) -> Void) -> Session
-  ) async -> Any? {
+    start: (@escaping @MainActor (TestResult?) -> Void) -> Session
+  ) async -> TestResult? {
     let box = ResultBox()
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       var continuationRef: CheckedContinuation<Void, Never>? = continuation
       var session: Session?
-      let finish: @MainActor (Any?) -> Void = { value in
+      let finish: @MainActor (TestResult?) -> Void = { value in
         guard let c = continuationRef else { return }
         box.value = value
         continuationRef = nil
@@ -155,14 +166,15 @@ struct JSONSessionTests {
     return box.value
   }
 
-  func waitForResult(fetcher: any HTTPDataFetcher, count: Int = 1) async -> Any? {
+  func waitForResult(fetcher: any HTTPDataFetcher, count: Int = 1) async -> TestResult? {
     await awaitResult { done in
-      let group = Group(target: count) { result in
-        done(result)
-      }
+      let context = TestContext(targetCount: count, done: done)
       let activeSession = Session(base: base, token: "", fetcher: fetcher)
       activeSession.poll(
-        target: target, processors: group, repeatingEvery: count == 1 ? nil : 0.1)
+        target: target,
+        context: context,
+        processors: Group(),
+        repeatingEvery: count == 1 ? nil : 0.1)
       return activeSession
     }
   }
@@ -172,7 +184,7 @@ struct JSONSessionTests {
     let payload = ExamplePayload(name: "test")
     let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(payload, status: 200)])
     let result = await waitForResult(fetcher: fetcher)
-    #expect(result as? ExamplePayload == payload)
+    #expect(result == .payload(payload))
   }
 
   @Test
@@ -180,14 +192,14 @@ struct JSONSessionTests {
     let error = ExampleError(message: "oops", details: "something bad happened")
     let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(error, status: 404)])
     let result = await waitForResult(fetcher: fetcher)
-    #expect(result as? ExampleError == error)
+    #expect(result == .error(error))
   }
 
   @Test
   func unknownResponse() async throws {
     let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse("blah", status: 303)])
     let result = await waitForResult(fetcher: fetcher)
-    #expect(result as? String == "Unexpected Result")
+    #expect(result == .unexpected)
   }
 
   @Test
@@ -195,7 +207,7 @@ struct JSONSessionTests {
     let payload = ExamplePayload(name: "test")
     let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(payload, status: 200)])
     let result = await waitForResult(fetcher: fetcher, count: 3)
-    #expect(result as? ExamplePayload == payload)
+    #expect(result == .payload(payload))
   }
 
   @Test
@@ -203,15 +215,13 @@ struct JSONSessionTests {
     let payload = ExamplePayload(name: "test")
     let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(payload, status: 200)])
     let result = await awaitResult { done in
-      let processor = PayloadProcessor { value in
-        done(value)
-        return .cancel
-      }
+      let context = TestContext(targetCount: 1, done: done)
+      let processor = PayloadProcessor().eraseToAnyProcessor()
       let activeSession = Session(base: base, token: "", fetcher: fetcher)
-      activeSession.poll(target: target, processors: processor)
+      activeSession.poll(target: target, context: context, processors: processor)
       return activeSession
     }
-    #expect(result as? ExamplePayload == payload)
+    #expect(result == .payload(payload))
   }
 
   @Test
