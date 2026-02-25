@@ -7,5 +7,5 @@ import Foundation
 
 /// Something that resolves to a path to a REST resource.
 public protocol ResourceResolver {
-    func path(in session: Session) -> String
+  func path(in session: Session) -> String
 }

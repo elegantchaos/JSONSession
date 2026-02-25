@@ -6,73 +6,93 @@
 import Foundation
 
 #if canImport(FoundationNetworking)
-import FoundationNetworking
+  import FoundationNetworking
 #endif
 
-public protocol ProcessorGroup {
-    /// Name of the resource type we process.
-    var name: String { get }
+/// Group of processors that can decode and handle responses for a resource.
+public protocol ProcessorGroup<Context>: Sendable {
+  /// Context type threaded through response processing.
+  associatedtype Context: Sendable
 
-    /// Individual processors which match against HTTP responses.
-    var processors: [ProcessorBase] { get }
+  /// Name of the resource type we process.
+  var name: String { get }
 
-    /// Is this group actually a single processor. Used to tailor the logging messages.
-    var groupIsProcessor: Bool { get }
+  /// Individual processors which match against HTTP responses.
+  var processors: [AnyProcessor<Context>] { get }
 
-    /// Path the to resource we process.
-    func path(for target: ResourceResolver, in session: Session) -> String
+  /// Is this group actually a single processor. Used to tailor logging messages.
+  var groupIsProcessor: Bool { get }
 
-    /// Decode a response.
-    func decode(response: HTTPURLResponse, data: Data, for request: Request, in session: Session) throws -> RepeatStatus
+  /// Path to the resource we process.
+  func path(for target: ResourceResolver, in session: Session) -> String
+
+  /// Decode a response and return repeat behavior.
+  func decode(
+    response: HTTPURLResponse,
+    data: Data,
+    for request: Request<Context>,
+    in context: Context
+  ) async throws -> RepeatStatus
 }
 
-public extension ProcessorGroup {
-    var name: String { "untitled group" } // Default name
-    var groupIsProcessor: Bool { false } // Normally a group contains individual processors.
+extension ProcessorGroup {
+  public var name: String { "untitled group" }
+  public var groupIsProcessor: Bool { false }
 
-    func path(for target: ResourceResolver, in session: Session) -> String {
-        // By default, just use the target's path
-        target.path(in: session)
-    }
+  public func path(for target: ResourceResolver, in session: Session) -> String {
+    target.path(in: session)
+  }
 
-    func decode(response: HTTPURLResponse, data: Data, for request: Request, in session: Session) throws -> RepeatStatus {
-        // Decode the response as JSON, and try to pass it to a processor which handles the http response code.
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let code = response.statusCode
-        for processor in processors {
-            let codes = processor.codes
-            if codes.isEmpty || codes.contains(code) {
-                do {
-                    let decoded = try processor.decode(data: data, with: decoder)
-                    let status = processor.process(decoded: decoded, response: response, for: request, in: session)
-                    sessionChannel.log(processedMessage(processor: processor, status: status))
-                    return status
-                } catch {
-                    sessionChannel.log("Error thrown:\n- query: \(name)\n- target: \(response.url!)\n- processor: \(processor.name)\n- error: \(error)\n")
-                    if let string = String(data: data, encoding: .utf8) {
-                        sessionChannel.log("Data was: \(string).")
-                    }
-                }
-            }
+  public func decode(
+    response: HTTPURLResponse,
+    data: Data,
+    for request: Request<Context>,
+    in context: Context
+  ) async throws -> RepeatStatus {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let code = response.statusCode
+    for processor in processors {
+      let acceptedCodes = processor.codes
+      if acceptedCodes.isEmpty || acceptedCodes.contains(code) {
+        do {
+          let decoded = try processor.decode(data: data, with: decoder)
+          let status = try await processor.process(
+            decoded: decoded,
+            response: response,
+            for: request,
+            in: context)
+          sessionChannel.log(processedMessage(processor: processor, status: status))
+          return status
+
+        } catch {
+          sessionChannel.log(
+            "Error thrown:\n- query: \(name)\n- target: \(response.url!)\n- processor: \(processor.name)\n- error: \(error)\n"
+          )
+          if let string = String(data: data, encoding: .utf8) {
+            sessionChannel.log("Data was: \(string).")
+          }
         }
-
-        // Nothing matched or succeeded.
-        throw Session.Errors.unexpectedResponse(response.statusCode)
+      }
     }
 
-    /// Formatted message for logging.
-    private func processedMessage(processor: ProcessorBase, status: RepeatStatus) -> String {
-        let nameInfo = groupIsProcessor ? name : "\(name) using \(processor.name)"
-        return "Processed \(nameInfo). Repeat status: \(status)."
-    }
+    throw Session.Errors.unexpectedResponse(response.statusCode)
+  }
+
+  private func processedMessage(processor: AnyProcessor<Context>, status: RepeatStatus) -> String {
+    let nameInfo = groupIsProcessor ? name : "\(name) using \(processor.name)"
+    return "Processed \(nameInfo). Repeat status: \(status)."
+  }
 }
 
-// For brevity, we can just use a list of processors as a ProcessorGroup.
-// It will have a default name, and no special `unprocessed` handler, but for simple
-// cases that might be enough.
-typealias ProcessorList = [any Processor]
-extension ProcessorList: ProcessorGroup {
-    public var processors: [ProcessorBase] { self }
-    public var groupIsProcessor: Bool { true }
+/// Convenience group wrapper for a list of erased processors.
+public struct AnyProcessorGroup<Context: Sendable>: ProcessorGroup {
+  public let name: String
+  public let processors: [AnyProcessor<Context>]
+
+  public init(name: String, processors: [AnyProcessor<Context>]) {
+    self.name = name
+    self.processors = processors
+  }
 }
