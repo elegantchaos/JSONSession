@@ -1,4 +1,5 @@
 {
+  "originHash" : "2be22f772ebe48dc08ec20cadb371e204912e8dfe9712bfedcedf020ecaa9b51",
   "pins" : [
     {
       "identity" : "actionbuildercore",
@@ -41,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/elegantchaos/Logger.git",
       "state" : {
-        "revision" : "e8a0dea5e826a6b3f7d020bd113247274991fb97",
-        "version" : "1.5.5"
+        "revision" : "6957a21c4e02fc03734a460fb8bfcd36dbe8aba8",
+        "version" : "2.0.1"
       }
     },
     {
@@ -64,24 +65,6 @@
       }
     },
     {
-      "identity" : "swiftformat",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/nicklockwood/SwiftFormat",
-      "state" : {
-        "revision" : "665c3c58923ee8ac36d3e44b17dc185229cce301",
-        "version" : "0.49.13"
-      }
-    },
-    {
-      "identity" : "swiftformatterplugin",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/elegantchaos/SwiftFormatterPlugin.git",
-      "state" : {
-        "revision" : "53d24a9c47d53f9c67c630e7e23fb50b8b442dd2",
-        "version" : "1.0.3"
-      }
-    },
-    {
       "identity" : "xctestextensions",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/elegantchaos/XCTestExtensions.git",
@@ -91,5 +74,5 @@
       }
     }
   ],
-  "version" : 2
+  "version" : 3
 }

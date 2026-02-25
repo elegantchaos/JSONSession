@@ -6,67 +6,73 @@
 import Foundation
 
 extension String.StringInterpolation {
-    mutating func appendInterpolation(seconds: TimeInterval) {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .decimal
-        formatter.usesSignificantDigits = true
-        formatter.maximumSignificantDigits = 2
-        if let result = formatter.string(from: seconds as NSNumber) {
-            appendLiteral("\(result) seconds")
-        }
+  mutating func appendInterpolation(seconds: TimeInterval) {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.usesSignificantDigits = true
+    formatter.maximumSignificantDigits = 2
+    if let result = formatter.string(from: seconds as NSNumber) {
+      appendLiteral("\(result) seconds")
     }
+  }
 }
 
 extension TimeInterval {
-    var asDispatchTimeInterval: DispatchTimeInterval {
-        .nanoseconds(Int(self * 1_000_000_000.0))
-    }
+  var asDispatchTimeInterval: DispatchTimeInterval {
+    .nanoseconds(Int(self * 1_000_000_000.0))
+  }
 }
 
 extension DispatchTimeInterval {
-    var asTimeInterval: TimeInterval {
-        switch self {
-            case let .seconds(value):
-                return TimeInterval(value)
-            case let .milliseconds(value):
-                return TimeInterval(value) * 0.001
-            case let .microseconds(value):
-                return TimeInterval(value) * 0.000001
-            case let .nanoseconds(value):
-                return TimeInterval(value) * 0.000000001
+  var asTimeInterval: TimeInterval {
+    switch self {
+    case .seconds(let value):
+      return TimeInterval(value)
+    case .milliseconds(let value):
+      return TimeInterval(value) * 0.001
+    case .microseconds(let value):
+      return TimeInterval(value) * 0.000001
+    case .nanoseconds(let value):
+      return TimeInterval(value) * 0.000000001
 
-            case .never:
-                return .infinity
+    case .never:
+      return .infinity
 
-            @unknown default:
-                return .infinity
-        }
+    @unknown default:
+      return .infinity
     }
+  }
 }
 
-public extension DispatchTime {
-    func distance_shim(to other: DispatchTime) -> DispatchTimeInterval {
-        let diff = Int(other.uptimeNanoseconds) - Int(uptimeNanoseconds)
-        return .nanoseconds(Int(diff))
-    }
+extension DispatchTime {
+  public func distance_shim(to other: DispatchTime) -> DispatchTimeInterval {
+    let diff = Int(other.uptimeNanoseconds) - Int(uptimeNanoseconds)
+    return .nanoseconds(Int(diff))
+  }
 
-    func advanced_shim(by n: DispatchTimeInterval) -> DispatchTime {
-        switch n {
-            case let .nanoseconds(nanoseconds): return DispatchTime(uptimeNanoseconds: uptimeNanoseconds + UInt64(nanoseconds))
-            case let .microseconds(micro): return DispatchTime(uptimeNanoseconds: uptimeNanoseconds + (UInt64(micro) * 1000))
-            case let .milliseconds(milli): return DispatchTime(uptimeNanoseconds: uptimeNanoseconds + (UInt64(milli) * 1_000_000))
-            case let .seconds(seconds): return DispatchTime(uptimeNanoseconds: uptimeNanoseconds + (UInt64(seconds) * 1_000_000_000))
-            default:
-                return self
-        }
+  public func advanced_shim(by n: DispatchTimeInterval) -> DispatchTime {
+    switch n {
+    case .nanoseconds(let nanoseconds):
+      return DispatchTime(uptimeNanoseconds: uptimeNanoseconds + UInt64(nanoseconds))
+    case .microseconds(let micro):
+      return DispatchTime(uptimeNanoseconds: uptimeNanoseconds + (UInt64(micro) * 1000))
+    case .milliseconds(let milli):
+      return DispatchTime(uptimeNanoseconds: uptimeNanoseconds + (UInt64(milli) * 1_000_000))
+    case .seconds(let seconds):
+      return DispatchTime(uptimeNanoseconds: uptimeNanoseconds + (UInt64(seconds) * 1_000_000_000))
+    default:
+      return self
     }
+  }
 }
 
 #if os(Linux)
-public extension DispatchTime {
-    func distance(to other: DispatchTime) -> DispatchTimeInterval { distance_shim(to: other) }
-    func advanced(by n: DispatchTimeInterval) -> DispatchTime { advanced_shim(by: n) }
-}
+  extension DispatchTime {
+    public func distance(to other: DispatchTime) -> DispatchTimeInterval {
+      distance_shim(to: other)
+    }
+    public func advanced(by n: DispatchTimeInterval) -> DispatchTime { advanced_shim(by: n) }
+  }
 
-extension DispatchTimeInterval: Equatable {}
+  extension DispatchTimeInterval: Equatable {}
 #endif

@@ -5,9 +5,9 @@
 
 import Foundation
 
-public struct Failure: Codable {
-    let message: String
-    let documentation_url: String
+public struct Failure: Codable, Sendable {
+  let message: String
+  let documentation_url: String
 
-    var canIgnore: Bool { false }
+  var canIgnore: Bool { false }
 }

@@ -8,7 +8,7 @@ import Foundation
 /// Basic resource with a fixed path.
 
 public struct Resource: ResourceResolver {
-    let path: String
-    public func path(in _: Session) -> String { path }
-    public init(_ path: String) { self.path = path }
+  let path: String
+  public func path(in _: Session) -> String { path }
+  public init(_ path: String) { self.path = path }
 }
