@@ -9,6 +9,7 @@ import Foundation
   import FoundationNetworking
 #endif
 
+/// Group of processors that can decode and handle responses for a resource.
 public protocol ProcessorGroup {
   /// Name of the resource type we process.
   var name: String { get }
@@ -77,6 +78,7 @@ extension ProcessorGroup {
 // For brevity, we can just use a list of processors as a ProcessorGroup.
 // It will have a default name, and no special `unprocessed` handler, but for simple
 // cases that might be enough.
+/// Convenience group alias for an array of typed processors.
 typealias ProcessorList = [any Processor]
 extension ProcessorList: ProcessorGroup {
   public var processors: [ProcessorBase] { self }

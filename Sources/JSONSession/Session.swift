@@ -13,16 +13,22 @@ import Logger
 public let sessionChannel = Channel("com.elegantchaos.jsonsession.JSONSession")
 public let networkingChannel = Channel("com.elegantchaos.jsonsession.JSONNetworking")
 
+/// Minimal async data loading interface used by ``Session``.
 public protocol HTTPDataFetcher {
+  /// Fetches bytes and response metadata for a request.
   func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
 extension URLSession: HTTPDataFetcher {}
 
 open class Session: @unchecked Sendable {
+  /// Transport used for outbound HTTP requests.
   public let fetcher: any HTTPDataFetcher
+  /// Base URL for all polled resources.
   public let base: URL
+  /// Bearer token sent with each request.
   public let token: String
+  /// Default repeat interval in seconds when none is supplied per poll call.
   public let defaultInterval: TimeInterval
 
   final class ManagedTask: @unchecked Sendable {
@@ -67,6 +73,7 @@ open class Session: @unchecked Sendable {
 }
 
 extension Session {
+  /// Internal session error states while handling responses.
   enum Errors: Error {
     case badResponse
     case missingData
@@ -94,7 +101,7 @@ extension Session {
   }
 
   func sendRequest(request: Request) async {
-    // TODO: add a SessionSession which contains the session and the target. Pass that to the processor group instead of self. This allows processors to read the target, and allows custom target objects to store state.
+    // TODO: Replace loose Session references in processor callbacks with a focused context value.
     let urlRequest = request.urlRequest(for: self)
     do {
       let (data, response) = try await fetcher.data(for: urlRequest)

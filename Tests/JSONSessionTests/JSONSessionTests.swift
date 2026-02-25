@@ -123,7 +123,10 @@ struct JSONSessionTests {
     return (data, response)
   }
 
-  func waitForResult(fetcher: any HTTPDataFetcher, count: Int = 1) async -> Any? {
+  func awaitResult(
+    timeoutNanoseconds: UInt64 = 1_000_000_000,
+    start: (@escaping @MainActor (Any?) -> Void) -> Session
+  ) async -> Any? {
     let box = ResultBox()
     await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
       var continuationRef: CheckedContinuation<Void, Never>? = continuation
@@ -136,91 +139,97 @@ struct JSONSessionTests {
       }
 
       let timeoutTask = Task { @MainActor in
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        try? await Task.sleep(nanoseconds: timeoutNanoseconds)
         guard continuationRef != nil else { return }
         session?.cancel()
         finish(nil)
       }
 
-      let group = Group(target: count) { result in
+      session = start { value in
         Task { @MainActor in
           timeoutTask.cancel()
-          finish(result)
+          finish(value)
         }
       }
-      let activeSession = Session(base: base, token: "", fetcher: fetcher)
-      session = activeSession
-      activeSession.poll(
-        target: target, processors: group, repeatingEvery: count == 1 ? nil : 0.1)
     }
     return box.value
   }
 
+  func waitForResult(fetcher: any HTTPDataFetcher, count: Int = 1) async -> Any? {
+    await awaitResult { done in
+      let group = Group(target: count) { result in
+        done(result)
+      }
+      let activeSession = Session(base: base, token: "", fetcher: fetcher)
+      activeSession.poll(
+        target: target, processors: group, repeatingEvery: count == 1 ? nil : 0.1)
+      return activeSession
+    }
+  }
+
   @Test
-  func payload() async {
+  func payload() async throws {
     let payload = ExamplePayload(name: "test")
-    let fetcher = try! MockAsyncFetcher(url: url, responses: [makeResponse(payload, status: 200)])
+    let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(payload, status: 200)])
     let result = await waitForResult(fetcher: fetcher)
     #expect(result as? ExamplePayload == payload)
   }
 
   @Test
-  func error() async {
+  func error() async throws {
     let error = ExampleError(message: "oops", details: "something bad happened")
-    let fetcher = try! MockAsyncFetcher(url: url, responses: [makeResponse(error, status: 404)])
+    let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(error, status: 404)])
     let result = await waitForResult(fetcher: fetcher)
     #expect(result as? ExampleError == error)
   }
 
   @Test
-  func unknownResponse() async {
-    let fetcher = try! MockAsyncFetcher(url: url, responses: [makeResponse("blah", status: 303)])
+  func unknownResponse() async throws {
+    let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse("blah", status: 303)])
     let result = await waitForResult(fetcher: fetcher)
     #expect(result as? String == "Unexpected Result")
   }
 
   @Test
-  func polling() async {
+  func polling() async throws {
     let payload = ExamplePayload(name: "test")
-    let fetcher = try! MockAsyncFetcher(url: url, responses: [makeResponse(payload, status: 200)])
+    let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(payload, status: 200)])
     let result = await waitForResult(fetcher: fetcher, count: 3)
     #expect(result as? ExamplePayload == payload)
   }
 
   @Test
-  func processorAsGroup() async {
+  func processorAsGroup() async throws {
     let payload = ExamplePayload(name: "test")
-    let fetcher = try! MockAsyncFetcher(url: url, responses: [makeResponse(payload, status: 200)])
-    let box = ResultBox()
-    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-      var continuationRef: CheckedContinuation<Void, Never>? = continuation
-      var session: Session?
-      let finish: @MainActor (Any?) -> Void = { value in
-        guard let c = continuationRef else { return }
-        box.value = value
-        continuationRef = nil
-        c.resume()
-      }
-
-      let timeoutTask = Task { @MainActor in
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
-        guard continuationRef != nil else { return }
-        session?.cancel()
-        finish(nil)
-      }
-
+    let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(payload, status: 200)])
+    let result = await awaitResult { done in
       let processor = PayloadProcessor { value in
-        Task { @MainActor in
-          timeoutTask.cancel()
-          finish(value)
-        }
+        done(value)
         return .cancel
       }
       let activeSession = Session(base: base, token: "", fetcher: fetcher)
-      session = activeSession
       activeSession.poll(target: target, processors: processor)
+      return activeSession
     }
-    let result = box.value
     #expect(result as? ExamplePayload == payload)
+  }
+
+  @Test
+  func transportFailureTimesOutWithoutResult() async throws {
+    struct AlwaysFailingFetcher: HTTPDataFetcher {
+      func data(for _: URLRequest) async throws -> (Data, URLResponse) {
+        throw URLError(.cannotConnectToHost)
+      }
+    }
+
+    let result = await waitForResult(fetcher: AlwaysFailingFetcher())
+    #expect(result == nil)
+  }
+
+  @Test
+  func emptyResponseListTimesOutWithoutResult() async throws {
+    let fetcher = MockAsyncFetcher(url: url, responses: [])
+    let result = await waitForResult(fetcher: fetcher)
+    #expect(result == nil)
   }
 }
