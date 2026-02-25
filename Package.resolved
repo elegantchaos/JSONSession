@@ -1,13 +1,13 @@
 {
-  "originHash" : "e9361a667b14c79abb02d20db194db6f3f77e0d5613fefc25e19075bc87f4cef",
+  "originHash" : "7f976e890a3d356bf9793ccaef3f3591a45986c558d6385398a40ba5010f2a41",
   "pins" : [
     {
       "identity" : "actionbuildercore",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/elegantchaos/ActionBuilderCore",
       "state" : {
-        "revision" : "490cc0d1d79a01cdb57eab44b5bcbce807302b46",
-        "version" : "2.1.1"
+        "revision" : "be27f0c4b0f3f95390b8bf0f7b9346357e0c9880",
+        "version" : "2.1.2"
       }
     },
     {
@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/elegantchaos/ActionBuilderPlugin.git",
       "state" : {
-        "revision" : "122da77163518fce77e515b6d75ae13276ebcb25",
-        "version" : "2.0.1"
+        "revision" : "7c2f45813e5172534c6ab5ca0ddc64c53f6fc869",
+        "version" : "2.1.0"
       }
     },
     {
@@ -26,24 +26,6 @@
       "state" : {
         "revision" : "01cc58b8d9a01d67ee6669b67db41b2060ea467b",
         "version" : "1.0.7"
-      }
-    },
-    {
-      "identity" : "coercion",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/elegantchaos/Coercion.git",
-      "state" : {
-        "revision" : "6872c101780abbe62bfe6e2498a2a3b14813ccd6",
-        "version" : "1.0.3"
-      }
-    },
-    {
-      "identity" : "datafetcher",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/elegantchaos/DataFetcher.git",
-      "state" : {
-        "revision" : "88550e5207654ad19237a578188e4757c919970b",
-        "version" : "1.0.2"
       }
     },
     {
@@ -69,8 +51,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/elegantchaos/SemanticVersion",
       "state" : {
-        "revision" : "6bda5a45a2f687a82a0fbb002bee8ad31e44f478",
-        "version" : "1.1.0"
+        "revision" : "2637309c72c1415cc3d1ea27ae6ddb2a2b66ecf0",
+        "version" : "1.1.2"
       }
     },
     {
@@ -96,8 +78,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/elegantchaos/Versionator.git",
       "state" : {
-        "revision" : "08494f15bafcda943c0c13a80b81307a910bbc01",
-        "version" : "2.1.0"
+        "revision" : "b5f925adb48a08f33281713cb48c51a9cead21ee",
+        "version" : "2.1.1"
       }
     }
   ],

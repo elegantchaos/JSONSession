@@ -3,7 +3,6 @@
 //  All code (c) 2020 - present day, Elegant Chaos Limited.
 // -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-import DataFetcher
 import Foundation
 import Logger
 
@@ -14,17 +13,33 @@ import Logger
 public let sessionChannel = Channel("com.elegantchaos.jsonsession.JSONSession")
 public let networkingChannel = Channel("com.elegantchaos.jsonsession.JSONNetworking")
 
+public protocol HTTPDataFetcher {
+  func data(for request: URLRequest) async throws -> (Data, URLResponse)
+}
+
+extension URLSession: HTTPDataFetcher {}
+
 open class Session: @unchecked Sendable {
-  public let fetcher: DataFetcher
+  public let fetcher: any HTTPDataFetcher
   public let base: URL
   public let token: String
   public let defaultInterval: TimeInterval
 
-  var tasks: [DataTask] = []
+  final class ManagedTask: @unchecked Sendable {
+    var task: Task<Void, Never>?
+    var isDone = false
+
+    func cancel() {
+      task?.cancel()
+      isDone = true
+    }
+  }
+
+  var tasks: [ManagedTask] = []
 
   public init(
     base: URL, token: String, defaultInterval: TimeInterval = 60.0,
-    fetcher: DataFetcher = URLSession.shared
+    fetcher: any HTTPDataFetcher = URLSession.shared
   ) {
     self.base = base
     self.token = token
@@ -61,24 +76,37 @@ extension Session {
 
   func poll(_ request: Request, deadline: DispatchTime) {
     request.log(deadline: deadline)
-    DispatchQueue.global(qos: .background).asyncAfter(deadline: deadline) {
-      self.sendRequest(request: request)
+    let managed = ManagedTask()
+    tasks.append(managed)
+    managed.task = Task { [weak self] in
+      defer {
+        managed.isDone = true
+        self?.tasks = self?.tasks.filter { !$0.isDone } ?? []
+      }
+
+      let delay = max(0, DispatchTime.now().distance(to: deadline).asTimeInterval)
+      if delay > 0 {
+        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+      }
+      guard !Task.isCancelled, let self else { return }
+      await self.sendRequest(request: request)
     }
   }
 
-  func sendRequest(request: Request) {
+  func sendRequest(request: Request) async {
     // TODO: add a SessionSession which contains the session and the target. Pass that to the processor group instead of self. This allows processors to read the target, and allows custom target objects to store state.
     let urlRequest = request.urlRequest(for: self)
-    let task = fetcher.data(for: urlRequest) { result, response in
+    do {
+      let (data, response) = try await fetcher.data(for: urlRequest)
       request.log(response: response)
-      let updatedRequest = self.processResponse(result, response: response, for: request)
+      let updatedRequest = processResponse(.success(data), response: response, for: request)
       if let deadline = updatedRequest.repeatTime {
-        self.poll(updatedRequest, deadline: deadline)
+        poll(updatedRequest, deadline: deadline)
       }
-      self.tasks = self.tasks.filter { task in !task.isDone }
+    } catch {
+      request.log(response: nil)
+      _ = processResponse(.failure(error), response: nil, for: request)
     }
-    tasks.append(task)
-    task.resume()
   }
 
   func processResponse(_ result: Result<Data, Error>, response: URLResponse?, for request: Request)
