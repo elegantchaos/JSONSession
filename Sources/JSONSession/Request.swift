@@ -9,7 +9,7 @@ import Foundation
   import FoundationNetworking
 #endif
 
-public struct Request {
+public struct Request: @unchecked Sendable {
   public let resource: ResourceResolver
   let processors: ProcessorGroup
   var tag: String?

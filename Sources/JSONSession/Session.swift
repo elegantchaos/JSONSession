@@ -14,7 +14,7 @@ import Logger
 public let sessionChannel = Channel("com.elegantchaos.jsonsession.JSONSession")
 public let networkingChannel = Channel("com.elegantchaos.jsonsession.JSONNetworking")
 
-open class Session {
+open class Session: @unchecked Sendable {
   public let fetcher: DataFetcher
   public let base: URL
   public let token: String
