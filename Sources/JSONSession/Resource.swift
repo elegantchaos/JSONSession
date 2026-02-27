@@ -6,9 +6,9 @@
 import Foundation
 
 /// Basic resource with a fixed path.
-
 public struct Resource: ResourceResolver {
-  let path: String
-  public func path(in _: Session) -> String { path }
+  /// Relative path appended to the configured API base URL.
+  public let path: String
+  /// Creates a fixed-path resource.
   public init(_ path: String) { self.path = path }
 }

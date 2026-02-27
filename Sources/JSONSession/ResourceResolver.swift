@@ -6,6 +6,7 @@
 import Foundation
 
 /// Something that resolves to a path to a REST resource.
-public protocol ResourceResolver {
-  func path(in session: Session) -> String
+public protocol ResourceResolver: Sendable {
+  /// Relative path for this resource.
+  var path: String { get }
 }

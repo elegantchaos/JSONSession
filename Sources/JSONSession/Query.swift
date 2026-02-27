@@ -9,13 +9,17 @@ import Foundation
   import FoundationNetworking
 #endif
 
+/// Legacy helper for constructing authenticated URL requests.
 public struct Query {
+  /// Human-readable query name.
   let name: String
-  let query: (ResourceResolver, Session) -> String
+  /// Closure that resolves query-specific path components.
+  let query: @Sendable (any ResourceResolver, Session) -> String
 
-  func request(for target: ResourceResolver, in session: Session) -> URLRequest {
+  /// Builds an authenticated GET request for a target resource.
+  func request(for target: any ResourceResolver, in session: Session) -> URLRequest {
     let authorization = "bearer \(session.token)"
-    var request = URLRequest(url: session.base.appendingPathComponent(target.path(in: session)))
+    var request = URLRequest(url: session.base.appendingPathComponent(target.path))
     request.addValue(authorization, forHTTPHeaderField: "Authorization")
     request.httpMethod = "GET"
     return request

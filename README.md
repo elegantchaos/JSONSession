@@ -32,75 +32,115 @@
 
 # JSONSession
 
-Support for periodic polling of a JSON REST resource.
+JSONSession is a small async client for JSON REST APIs that use bearer-token authentication.
 
-Authentication is passed in the `Authorization` header, as `bearer <token>`. 
+It provides:
+- a concurrency-safe `Session` actor for authenticated requests
+- a `Processor` / `ProcessorGroup` pipeline for typed response decoding
+- resource path abstraction via `ResourceResolver`
+- stream-based polling via `Session.pollData(...)`
 
-The response is expected to contain an `Etag` header field, which represents the current state of the resource, and is passed back to the server with subsequent requests.
+Authentication is sent in the `Authorization` header as `bearer <token>`.
 
-This mechanism allows efficient polling of the server for changes, and can be a workaround for rate-limiting (where requests that didn't pick up any change in state don't count towards the rate limit).
+## Design
 
-## Parsing Responses
+The current design is intentionally one-shot and structured-concurrency friendly:
 
-When a request is sent, it is passed a `ProcessorGroup` which contains a list of `Processor` objects. 
+- `Session` is an actor, so request execution and transport use are isolated.
+- `Session` does not own long-lived background polling loops.
+- Callers own scheduling and cancellation policy (for example, an actor that sleeps and calls `session.request(...)`).
+- For continuous polling, callers can use `session.pollData(...)`, which returns an `AsyncStream` and cancels automatically when the stream terminates.
+- Processing remains pluggable: `ProcessorGroup` tries processors in order by HTTP status code and decode success.
 
-When a response comes back, it is matched against each `Processor` in turn, matching against the HTTP status code. If a processor supports the code, it is given a chance to decode the response. 
+This keeps JSONSession focused on transport + decoding, while application/domain layers own timing decisions.
 
-If a processor fails to decode the response (throws an error), matching is continued unless the list of processors is exhausted. The first successful match ends this process. If all processors are exhausted without success, then the `unprocessed` method of the `ProcessorGroup` is called; this can be used for catch-all error handling.
+## Intended Usage
+
+1. Define a `ResourceResolver` for each endpoint.
+2. Define one or more `Processor` types for expected status/payload pairs.
+3. Compose processors into a `ProcessorGroup`.
+4. Call `await session.request(...)` for each fetch cycle your app decides to run.
+
+You can also call `await session.data(for:)` when you want raw bytes and the `HTTPURLResponse`.
 
 ## Example
 
-This simple example polls the endpoint `https://some.endpoint/v1/` for the resource  `some/rest/resource`.
-
-When something has changed, a JSON response will be sent back. If the HTTP status code is one that we expect, we will decode the JSON into a Swift object, and call one of our Processor objects with it.
-
 ```swift
-/// if the response is 200, the server will send us an item
+import Foundation
+import JSONSession
+
+struct Item: Decodable {
+  let name: String
+}
+
+struct ErrorPayload: Decodable {
+  let error: String
+}
+
+actor Context {
+  var lastItem: Item?
+  var lastError: String?
+
+  func setItem(_ item: Item) {
+    lastItem = item
+  }
+
+  func setError(_ message: String) {
+    lastError = message
+  }
+}
+
 struct ItemProcessor: Processor {
-    struct Item: Decodable {
-        let name: String
-    }
+  typealias Context = Context
+  let codes = [200]
 
-    let codes = [200]
-    func process(_ item: Item, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
-        print("Received item \(item.name)")
-        return .inherited
-    }
+  func process(
+    _ payload: Item,
+    response _: HTTPURLResponse,
+    for _: Request<Context>,
+    in context: Context
+  ) async throws -> RepeatStatus {
+    await context.setItem(payload)
+    return .cancel
+  }
 }
 
-/// if the response is 400, the server will send us an error
 struct ErrorProcessor: Processor {
-    struct Error: Decodable {
-        let error: String
-    }
+  typealias Context = Context
+  let codes = [400]
 
-    let codes = [400]
-    func process(_ payload: Error, response: HTTPURLResponse, in session: Session) -> RepeatStatus {
-        print("Something went wrong: \(payload.error)")
-        return .inherited
-    }
+  func process(
+    _ payload: ErrorPayload,
+    response _: HTTPURLResponse,
+    for _: Request<Context>,
+    in context: Context
+  ) async throws -> RepeatStatus {
+    await context.setError(payload.error)
+    return .cancel
+  }
 }
 
-// make a session for the service we're targetting, supplying the authorization token
 let session = Session(base: URL(string: "https://some.endpoint/v1/")!, token: "<api-token>")
+let context = Context()
+let processors = AnyProcessorGroup(
+  name: "Item Query",
+  processors: [
+    ItemProcessor().eraseToAnyProcessor(),
+    ErrorProcessor().eraseToAnyProcessor(),
+  ]
+)
 
-// schedule polling of some REST resource
-session.poll(target: Resource("some/rest/request"), processors: [ItemProcessor(), ErrorProcessor()], repeatingEvery: 1.0)
-
-// the endpoint will be queried repeatedly by the session
-// when an expected response comes back, the response will be decoded and one of our processor objects will be called to process it
-RunLoop.main.run()
+await session.request(
+  target: Resource("some/rest/resource"),
+  context: context,
+  processors: processors
+)
 ```
 
+## Requirements
 
-### Requirements
+See `Package.swift` for current platform and Swift toolchain requirements.
 
-The `swift-tools-version` requirement is set to Swift 5, as the Foundation Networking API isn't quite right on Linux prior to 5.3. 
+## Made For GitHub
 
-Strictly speaking the code works with Swift 5.2 on Apple platforms, though it requires a fairly modern SDK.
-
-### Made For Github
-
-This is a generalisation of some code I built to access the Github API, and is used by [Octoid](https://github.com/elegantchaos/Octoid) which is a more general Github library.
-
-I split out the JSONSession functionality because I imagined that other servers may use the same mechanism. This may be an incorrect assumption, and/or this code may need to be generalised further to work with other servers. If so, let me know via an issue.
+JSONSession originated as part of GitHub API integrations and is used by [Octoid](https://github.com/elegantchaos/Octoid).

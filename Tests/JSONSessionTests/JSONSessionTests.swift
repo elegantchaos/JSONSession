@@ -8,7 +8,6 @@ import Testing
 #endif
 
 @Suite("JSONSession")
-@MainActor
 struct JSONSessionTests {
   let target = Resource("blah")
   let base = URL(string: "https://api.github.com")!
@@ -33,25 +32,15 @@ struct JSONSessionTests {
   }
 
   actor TestContext {
-    let targetCount: Int
-    let done: @MainActor (TestResult?) -> Void
-    var seen = 0
+    private var emitted: [TestResult] = []
 
-    init(targetCount: Int, done: @escaping @MainActor (TestResult?) -> Void) {
-      self.targetCount = targetCount
-      self.done = done
+    func emit(_ value: TestResult) -> RepeatStatus {
+      emitted.append(value)
+      return .cancel
     }
 
-    func emit(_ value: TestResult?) async -> RepeatStatus {
-      seen += 1
-      if seen == targetCount {
-        await MainActor.run {
-          done(value)
-        }
-        return .cancel
-      }
-
-      return .request
+    func results() -> [TestResult] {
+      emitted
     }
   }
 
@@ -100,10 +89,6 @@ struct JSONSessionTests {
     ]
   }
 
-  final class ResultBox {
-    var value: TestResult?
-  }
-
   actor MockAsyncFetcher: HTTPDataFetcher {
     let url: URL
     let responses: [(Data, HTTPURLResponse)]
@@ -123,6 +108,27 @@ struct JSONSessionTests {
     }
   }
 
+  actor CountingFetcher: HTTPDataFetcher {
+    private let url: URL
+    private let response: (Data, HTTPURLResponse)
+    private(set) var callCount = 0
+
+    init(url: URL, response: (Data, HTTPURLResponse)) {
+      self.url = url
+      self.response = response
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+      guard request.url == url else { throw URLError(.badURL) }
+      callCount += 1
+      return response
+    }
+
+    func count() -> Int {
+      callCount
+    }
+  }
+
   func makeResponse<T: Encodable>(_ payload: T, status: Int) throws -> (Data, HTTPURLResponse) {
     let data = try JSONEncoder().encode(payload)
     let response = try #require(
@@ -134,112 +140,125 @@ struct JSONSessionTests {
     return (data, response)
   }
 
-  func awaitResult(
-    timeoutNanoseconds: UInt64 = 1_000_000_000,
-    start: (@escaping @MainActor (TestResult?) -> Void) -> Session
-  ) async -> TestResult? {
-    let box = ResultBox()
-    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-      var continuationRef: CheckedContinuation<Void, Never>? = continuation
-      var session: Session?
-      let finish: @MainActor (TestResult?) -> Void = { value in
-        guard let c = continuationRef else { return }
-        box.value = value
-        continuationRef = nil
-        c.resume()
-      }
+  func executeRequests(
+    fetcher: any HTTPDataFetcher,
+    count: Int = 1,
+    processorGroup: some ProcessorGroup<TestContext> = Group()
+  ) async -> [TestResult] {
+    let context = TestContext()
+    let session = Session(base: base, token: "", fetcher: fetcher)
 
-      let timeoutTask = Task { @MainActor in
-        try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-        guard continuationRef != nil else { return }
-        session?.cancel()
-        finish(nil)
-      }
-
-      session = start { value in
-        Task { @MainActor in
-          timeoutTask.cancel()
-          finish(value)
-        }
-      }
+    for _ in 0 ..< count {
+      await session.request(target: target, context: context, processors: processorGroup)
     }
-    return box.value
-  }
 
-  func waitForResult(fetcher: any HTTPDataFetcher, count: Int = 1) async -> TestResult? {
-    await awaitResult { done in
-      let context = TestContext(targetCount: count, done: done)
-      let activeSession = Session(base: base, token: "", fetcher: fetcher)
-      activeSession.poll(
-        target: target,
-        context: context,
-        processors: Group(),
-        repeatingEvery: count == 1 ? nil : 0.1)
-      return activeSession
-    }
+    return await context.results()
   }
 
   @Test
   func payload() async throws {
     let payload = ExamplePayload(name: "test")
     let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(payload, status: 200)])
-    let result = await waitForResult(fetcher: fetcher)
-    #expect(result == .payload(payload))
+    let results = await executeRequests(fetcher: fetcher)
+    #expect(results == [.payload(payload)])
   }
 
   @Test
   func error() async throws {
     let error = ExampleError(message: "oops", details: "something bad happened")
     let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(error, status: 404)])
-    let result = await waitForResult(fetcher: fetcher)
-    #expect(result == .error(error))
+    let results = await executeRequests(fetcher: fetcher)
+    #expect(results == [.error(error)])
   }
 
   @Test
   func unknownResponse() async throws {
     let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse("blah", status: 303)])
-    let result = await waitForResult(fetcher: fetcher)
-    #expect(result == .unexpected)
+    let results = await executeRequests(fetcher: fetcher)
+    #expect(results == [.unexpected])
   }
 
   @Test
-  func polling() async throws {
+  func repeatedRequests() async throws {
     let payload = ExamplePayload(name: "test")
     let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(payload, status: 200)])
-    let result = await waitForResult(fetcher: fetcher, count: 3)
-    #expect(result == .payload(payload))
+    let results = await executeRequests(fetcher: fetcher, count: 3)
+    #expect(results == [.payload(payload), .payload(payload), .payload(payload)])
   }
 
   @Test
   func processorAsGroup() async throws {
     let payload = ExamplePayload(name: "test")
     let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(payload, status: 200)])
-    let result = await awaitResult { done in
-      let context = TestContext(targetCount: 1, done: done)
-      let processor = PayloadProcessor().eraseToAnyProcessor()
-      let activeSession = Session(base: base, token: "", fetcher: fetcher)
-      activeSession.poll(target: target, context: context, processors: processor)
-      return activeSession
-    }
-    #expect(result == .payload(payload))
+    let results = await executeRequests(fetcher: fetcher, processorGroup: PayloadProcessor().eraseToAnyProcessor())
+    #expect(results == [.payload(payload)])
   }
 
   @Test
-  func transportFailureTimesOutWithoutResult() async throws {
+  func transportFailureProducesNoResult() async throws {
     struct AlwaysFailingFetcher: HTTPDataFetcher {
       func data(for _: URLRequest) async throws -> (Data, URLResponse) {
         throw URLError(.cannotConnectToHost)
       }
     }
 
-    let result = await waitForResult(fetcher: AlwaysFailingFetcher())
-    #expect(result == nil)
+    let results = await executeRequests(fetcher: AlwaysFailingFetcher())
+    #expect(results.isEmpty)
   }
 
   @Test
-  func emptyResponseListTimesOutWithoutResult() async throws {
+  func emptyResponseListProducesNoResult() async throws {
     let fetcher = MockAsyncFetcher(url: url, responses: [])
-    let result = await waitForResult(fetcher: fetcher)
-    #expect(result == nil)
+    let results = await executeRequests(fetcher: fetcher)
+    #expect(results.isEmpty)
+  }
+
+  @Test
+  func pollDataStreamsResponses() async throws {
+    let payload = ExamplePayload(name: "test")
+    let fetcher = CountingFetcher(url: url, response: try makeResponse(payload, status: 200))
+    let session = Session(base: base, token: "", fetcher: fetcher)
+
+    var events: [Session.PollDataEvent] = []
+    var iterator = session.pollData(for: target, every: .milliseconds(10)).makeAsyncIterator()
+    while events.count < 3, let event = await iterator.next() {
+      events.append(event)
+    }
+
+    #expect(events.count == 3)
+    for event in events {
+      switch event {
+      case .response:
+        break
+      case .transportError(let message):
+        Issue.record("Unexpected transport error event: \(message)")
+      }
+    }
+  }
+
+  @Test
+  func pollDataStopsAfterStreamTermination() async throws {
+    let payload = ExamplePayload(name: "test")
+    let fetcher = CountingFetcher(url: url, response: try makeResponse(payload, status: 200))
+    let session = Session(base: base, token: "", fetcher: fetcher)
+
+    do {
+      let stream = session.pollData(for: target, every: .milliseconds(20))
+      let consumeOneTask = Task {
+        var seen = 0
+        for await _ in stream {
+          seen += 1
+          if seen == 1 {
+            break
+          }
+        }
+      }
+      _ = await consumeOneTask.value
+    }
+
+    let countAfterTermination = await fetcher.count()
+    try await Task.sleep(for: .milliseconds(120))
+    let finalCount = await fetcher.count()
+    #expect(finalCount - countAfterTermination <= 1)
   }
 }
