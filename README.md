@@ -154,11 +154,3 @@ await session.request(
   processors: processors
 )
 ```
-
-## Requirements
-
-See `Package.swift` for current platform and Swift toolchain requirements.
-
-## Made For GitHub
-
-JSONSession originated as part of GitHub API integrations and is used by [Octoid](https://github.com/elegantchaos/Octoid).
