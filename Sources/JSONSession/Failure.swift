@@ -8,10 +8,10 @@ import Foundation
 /// Standard GitHub-style API failure payload.
 public struct Failure: Codable, Sendable {
   /// Human-readable failure summary.
-  let message: String
+  public let message: String
   /// Documentation URL supplied by the API.
-  let documentation_url: String
+  public let documentation_url: String
 
   /// Indicates whether this failure can be ignored by higher-level callers.
-  var canIgnore: Bool { false }
+  public var canIgnore: Bool { false }
 }

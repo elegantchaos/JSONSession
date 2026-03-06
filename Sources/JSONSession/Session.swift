@@ -137,6 +137,9 @@ public actor Session {
             currentTag = response.value(forHTTPHeaderField: "ETag") ?? currentTag
             continuation.yield(.response(data, response))
           } catch {
+            if error is CancellationError || Task.isCancelled {
+              break
+            }
             networkingChannel.log(error)
             continuation.yield(.transportError(String(describing: error)))
           }

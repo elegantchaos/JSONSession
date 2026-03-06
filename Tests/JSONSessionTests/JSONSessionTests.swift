@@ -151,6 +151,12 @@ struct JSONSessionTests {
     }
   }
 
+  struct CancellationFailingFetcher: HTTPDataFetcher {
+    func data(for _: URLRequest) async throws -> (Data, URLResponse) {
+      throw CancellationError()
+    }
+  }
+
   func makeResponse<T: Encodable>(
     _ payload: T,
     status: Int,
@@ -300,6 +306,14 @@ struct JSONSessionTests {
     try await Task.sleep(for: .milliseconds(120))
     let finalCount = await fetcher.count()
     #expect(finalCount - countAfterTermination <= 1)
+  }
+
+  @Test
+  func pollDataTreatsCancellationAsSilentTermination() async {
+    let session = Session(base: base, token: "", fetcher: CancellationFailingFetcher())
+    var iterator = session.pollData(for: target, every: .milliseconds(10)).makeAsyncIterator()
+    let next = await iterator.next()
+    #expect(next == nil)
   }
 
   @Test

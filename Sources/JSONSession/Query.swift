@@ -12,12 +12,18 @@ import Foundation
 /// Legacy helper for constructing authenticated URL requests.
 public struct Query {
   /// Human-readable query name.
-  let name: String
+  public let name: String
   /// Closure that resolves query-specific path components.
-  let query: @Sendable (any ResourceResolver, Session) -> String
+  private let query: @Sendable (any ResourceResolver, Session) -> String
+
+  /// Creates a named query helper with custom path resolution.
+  public init(name: String, query: @escaping @Sendable (any ResourceResolver, Session) -> String) {
+    self.name = name
+    self.query = query
+  }
 
   /// Builds an authenticated GET request for a target resource.
-  func request(for target: any ResourceResolver, in session: Session) -> URLRequest {
+  public func request(for target: any ResourceResolver, in session: Session) -> URLRequest {
     let authorization = "bearer \(session.token)"
     let path = query(target, session)
     var request = URLRequest(url: session.base.appendingPathComponent(path))
