@@ -24,7 +24,7 @@ public protocol ProcessorGroup<Context>: Sendable {
   var groupIsProcessor: Bool { get }
 
   /// Path to the resource we process.
-  func path(for target: ResourceResolver, in session: Session) -> String
+  func path(for target: any ResourceResolver) -> String
 
   /// Decode a response and return repeat behavior.
   func decode(
@@ -36,11 +36,14 @@ public protocol ProcessorGroup<Context>: Sendable {
 }
 
 extension ProcessorGroup {
+  /// Default name used when a group does not provide one.
   public var name: String { "untitled group" }
+  /// Default assumes this value is a group and not a single processor.
   public var groupIsProcessor: Bool { false }
 
-  public func path(for target: ResourceResolver, in session: Session) -> String {
-    target.path(in: session)
+  /// Resolves request path from the provided target.
+  public func path(for target: any ResourceResolver) -> String {
+    target.path
   }
 
   public func decode(
@@ -80,6 +83,7 @@ extension ProcessorGroup {
     throw Session.Errors.unexpectedResponse(response.statusCode)
   }
 
+  /// Returns a consistent log message for successful processing.
   private func processedMessage(processor: AnyProcessor<Context>, status: RepeatStatus) -> String {
     let nameInfo = groupIsProcessor ? name : "\(name) using \(processor.name)"
     return "Processed \(nameInfo). Repeat status: \(status)."
@@ -88,9 +92,12 @@ extension ProcessorGroup {
 
 /// Convenience group wrapper for a list of erased processors.
 public struct AnyProcessorGroup<Context: Sendable>: ProcessorGroup {
+  /// Group name used in logs.
   public let name: String
+  /// Ordered processor chain used for decoding and handling responses.
   public let processors: [AnyProcessor<Context>]
 
+  /// Creates a named group from an ordered list of processors.
   public init(name: String, processors: [AnyProcessor<Context>]) {
     self.name = name
     self.processors = processors

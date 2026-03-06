@@ -65,7 +65,7 @@ extension AnyProcessor: ProcessorGroup {
 
 /// Typed processor convenience protocol for concrete payload/context types.
 public protocol Processor<Context>: Sendable {
-  /// Context type supplied by the caller while polling.
+  /// Context type supplied by the caller while processing a request.
   associatedtype Context: Sendable
   /// Decoded response type this processor consumes.
   associatedtype Payload: Decodable

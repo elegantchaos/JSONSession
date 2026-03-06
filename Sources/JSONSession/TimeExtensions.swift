@@ -6,6 +6,7 @@
 import Foundation
 
 extension String.StringInterpolation {
+  /// Renders a time interval using a compact decimal representation.
   mutating func appendInterpolation(seconds: TimeInterval) {
     let formatter = NumberFormatter()
     formatter.numberStyle = .decimal
@@ -18,12 +19,14 @@ extension String.StringInterpolation {
 }
 
 extension TimeInterval {
+  /// Converts a time interval in seconds to a dispatch interval.
   var asDispatchTimeInterval: DispatchTimeInterval {
     .nanoseconds(Int(self * 1_000_000_000.0))
   }
 }
 
 extension DispatchTimeInterval {
+  /// Converts a dispatch interval into seconds.
   var asTimeInterval: TimeInterval {
     switch self {
     case .seconds(let value):
@@ -45,11 +48,13 @@ extension DispatchTimeInterval {
 }
 
 extension DispatchTime {
+  /// Linux-compatible shim mirroring Darwin's `distance(to:)`.
   public func distance_shim(to other: DispatchTime) -> DispatchTimeInterval {
     let diff = Int(other.uptimeNanoseconds) - Int(uptimeNanoseconds)
     return .nanoseconds(Int(diff))
   }
 
+  /// Linux-compatible shim mirroring Darwin's `advanced(by:)`.
   public func advanced_shim(by n: DispatchTimeInterval) -> DispatchTime {
     switch n {
     case .nanoseconds(let nanoseconds):
@@ -68,11 +73,14 @@ extension DispatchTime {
 
 #if os(Linux)
   extension DispatchTime {
+    /// Compatibility wrapper for Linux toolchains lacking this API.
     public func distance(to other: DispatchTime) -> DispatchTimeInterval {
       distance_shim(to: other)
     }
+    /// Compatibility wrapper for Linux toolchains lacking this API.
     public func advanced(by n: DispatchTimeInterval) -> DispatchTime { advanced_shim(by: n) }
   }
 
+  /// Provides `Equatable` conformance for Linux-only tests.
   extension DispatchTimeInterval: Equatable {}
 #endif

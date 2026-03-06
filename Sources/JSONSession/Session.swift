@@ -10,169 +10,234 @@ import Logger
   import FoundationNetworking
 #endif
 
+/// Logging channel for request lifecycle messages.
 public let sessionChannel = Channel("com.elegantchaos.jsonsession.JSONSession")
+/// Logging channel for transport and network diagnostics.
 public let networkingChannel = Channel("com.elegantchaos.jsonsession.JSONNetworking")
 
 /// Minimal async data loading interface used by ``Session``.
-public protocol HTTPDataFetcher {
+public protocol HTTPDataFetcher: Sendable {
   /// Fetches bytes and response metadata for a request.
   func data(for request: URLRequest) async throws -> (Data, URLResponse)
 }
 
 extension URLSession: HTTPDataFetcher {}
 
-open class Session: @unchecked Sendable {
-  /// Transport used for outbound HTTP requests.
-  public let fetcher: any HTTPDataFetcher
-  /// Base URL for all polled resources.
-  public let base: URL
-  /// Bearer token sent with each request.
-  public let token: String
-  /// Default repeat interval in seconds when none is supplied per poll call.
-  public let defaultInterval: TimeInterval
+/// Concurrency-safe HTTP session wrapper used to fetch and decode JSON resources.
+public actor Session {
+  /// Result event produced by stream-based polling.
+  public enum PollDataEvent: Sendable {
+    /// Successful response payload.
+    case response(Data, HTTPURLResponse)
+    /// Transport-level failure while executing a poll request.
+    case transportError(String)
+  }
 
-  final class ManagedTask: @unchecked Sendable {
-    var task: Task<Void, Never>?
-    var isDone = false
+  /// Summary of response-derived state that callers can use for follow-up scheduling.
+  public struct RequestOutcome: Sendable, Equatable {
+    /// Latest ETag observed in response headers.
+    public let nextTag: String?
+    /// Repeat decision returned by the matching processor.
+    public let repeatStatus: RepeatStatus
+    /// Server-provided poll interval hint from `X-Poll-Interval`.
+    public let pollInterval: TimeInterval?
 
-    func cancel() {
-      task?.cancel()
-      isDone = true
+    /// Creates a request outcome.
+    public init(nextTag: String?, repeatStatus: RepeatStatus, pollInterval: TimeInterval?) {
+      self.nextTag = nextTag
+      self.repeatStatus = repeatStatus
+      self.pollInterval = pollInterval
     }
   }
 
-  var tasks: [ManagedTask] = []
+  /// Transport used for outbound HTTP requests.
+  public let fetcher: any HTTPDataFetcher
+  /// Base URL for all polled resources.
+  public nonisolated let base: URL
+  /// Bearer token sent with each request.
+  public nonisolated let token: String
 
+  /// Creates a session bound to a base URL and bearer token.
   public init(
     base: URL,
     token: String,
-    defaultInterval: TimeInterval = 60.0,
     fetcher: any HTTPDataFetcher = URLSession.shared
   ) {
     self.base = base
     self.token = token
-    self.defaultInterval = defaultInterval
     self.fetcher = fetcher
   }
 
-  public func poll<Context: Sendable>(
-    target: ResourceResolver,
+  /// Executes a single request and runs the provided processors over the response.
+  public func request<Context: Sendable>(
+    target: any ResourceResolver,
     context: Context,
     processors: some ProcessorGroup<Context>,
-    for deadline: DispatchTime = DispatchTime.now(),
-    tag: String? = nil,
-    repeatingEvery: TimeInterval? = nil
-  ) {
+    tag: String? = nil
+  ) async -> RequestOutcome {
     let request = Request(
       resource: target,
       processors: processors,
       tag: tag,
-      repeating: repeatingEvery != nil,
-      interval: repeatingEvery ?? defaultInterval)
-    poll(request, context: context, deadline: deadline)
+      repeating: false,
+      interval: 0
+    )
+    return await sendRequest(request: request, context: context)
   }
 
-  public func cancel() {
-    for task in tasks {
-      task.cancel()
+  /// Executes a single request and returns the raw bytes and HTTP response.
+  public func data(for target: any ResourceResolver, tag: String? = nil) async throws -> (Data, HTTPURLResponse) {
+    try await data(forPath: target.path, tag: tag)
+  }
+
+  /// Executes a single request for an explicit path and returns raw bytes plus HTTP response.
+  func data(forPath path: String, tag: String? = nil) async throws -> (Data, HTTPURLResponse) {
+    let authorization = "bearer \(token)"
+    var request = URLRequest(url: base.appendingPathComponent(path))
+    request.addValue(authorization, forHTTPHeaderField: "Authorization")
+    request.httpMethod = "GET"
+    request.cachePolicy = .reloadIgnoringLocalCacheData
+    if let tag {
+      request.addValue(tag, forHTTPHeaderField: "If-None-Match")
     }
-    tasks = []
+
+    let (data, response) = try await fetcher.data(for: request)
+    guard let http = response as? HTTPURLResponse else {
+      throw Errors.badResponse
+    }
+
+    return (data, http)
+  }
+
+  /// Starts polling for a target and yields responses in an async stream.
+  ///
+  /// The stream issues an immediate request unless `initialDelay` is non-zero.
+  /// It continues until the consumer stops iteration or the polling task is cancelled.
+  public nonisolated func pollData(
+    for target: any ResourceResolver,
+    every interval: Duration,
+    initialDelay: Duration = .zero,
+    tag: String? = nil
+  ) -> AsyncStream<PollDataEvent> {
+    AsyncStream(PollDataEvent.self, bufferingPolicy: .bufferingNewest(1)) { continuation in
+      let pollingTask = Task {
+        if initialDelay > .zero {
+          do {
+            try await Task.sleep(for: initialDelay)
+          } catch {
+            continuation.finish()
+            return
+          }
+        }
+
+        var currentTag = tag
+        while !Task.isCancelled {
+          do {
+            let (data, response) = try await self.data(for: target, tag: currentTag)
+            currentTag = response.value(forHTTPHeaderField: "ETag") ?? currentTag
+            continuation.yield(.response(data, response))
+          } catch {
+            if error is CancellationError || Task.isCancelled {
+              break
+            }
+            networkingChannel.log(error)
+            continuation.yield(.transportError(String(describing: error)))
+          }
+
+          do {
+            try await Task.sleep(for: interval)
+          } catch {
+            break
+          }
+        }
+
+        continuation.finish()
+      }
+
+      continuation.onTermination = { _ in
+        pollingTask.cancel()
+      }
+    }
   }
 }
 
 extension Session {
   /// Internal session error states while handling responses.
   enum Errors: Error {
+    /// Response was not an `HTTPURLResponse`.
     case badResponse
+    /// Response body was unexpectedly absent.
     case missingData
+    /// API returned an explicit failure payload.
     case apiError(Failure)
+    /// No processor handled the received status code.
     case unexpectedResponse(Int)
   }
 
-  func poll<Context: Sendable>(
-    _ request: Request<Context>,
-    context: Context,
-    deadline: DispatchTime
-  ) {
-    request.log(deadline: deadline)
-    let managed = ManagedTask()
-    tasks.append(managed)
-    managed.task = Task { [weak self] in
-      defer {
-        managed.isDone = true
-        self?.tasks = self?.tasks.filter { !$0.isDone } ?? []
-      }
-
-      let delay = max(0, DispatchTime.now().distance(to: deadline).asTimeInterval)
-      if delay > 0 {
-        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-      }
-      guard !Task.isCancelled, let self else { return }
-      await self.sendRequest(request: request, context: context)
-    }
-  }
-
-  func sendRequest<Context: Sendable>(request: Request<Context>, context: Context) async {
-    let urlRequest = request.urlRequest(for: self)
+  /// Runs a request and forwards the result into processor decoding.
+  func sendRequest<Context: Sendable>(request: Request<Context>, context: Context) async -> RequestOutcome {
     do {
-      let (data, response) = try await fetcher.data(for: urlRequest)
+      let path = request.processors.path(for: request.resource)
+      let (data, response) = try await data(forPath: path, tag: request.tag)
       request.log(response: response)
-      let updatedRequest = await processResponse(.success(data), response: response, for: request, context: context)
-      if let deadline = updatedRequest.repeatTime {
-        poll(updatedRequest, context: context, deadline: deadline)
-      }
+      return await processResponse(.success(data), response: response, for: request, context: context)
     } catch {
       request.log(response: nil)
-      _ = await processResponse(.failure(error), response: nil, for: request, context: context)
+      return await processResponse(.failure(error), response: nil, for: request, context: context)
     }
   }
 
+  /// Decodes and dispatches response data through the processor chain.
   func processResponse<Context: Sendable>(
     _ result: Result<Data, Error>,
     response: URLResponse?,
     for request: Request<Context>,
     context: Context
-  ) async -> Request<Context> {
+  ) async -> RequestOutcome {
+    let defaultOutcome = RequestOutcome(nextTag: request.tag, repeatStatus: .inherited, pollInterval: nil)
+
     switch result {
     case .failure(let error):
       networkingChannel.log(error)
 
     case .success(let data):
+      guard let response = response as? HTTPURLResponse else {
+        networkingChannel.log(Errors.badResponse)
+        return defaultOutcome
+      }
+
+      let nextTag = response.value(forHTTPHeaderField: "ETag") ?? request.tag
+      if let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining") {
+        networkingChannel.log("rate limit remaining: \(remaining)")
+      }
+
+      var pollInterval: TimeInterval?
+      if let intervalHeader = response.value(forHTTPHeaderField: "X-Poll-Interval"),
+        let seconds = Double(intervalHeader)
+      {
+        pollInterval = seconds
+      }
+
       do {
-        guard let response = response as? HTTPURLResponse else { throw Errors.badResponse }
-
-        var updatedRequest = request
-        if let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining"),
-          let tag = response.value(forHTTPHeaderField: "Etag")
-        {
-          updatedRequest.tag = tag
-          networkingChannel.log("rate limit remaining: \(remaining)")
-        }
-
-        if let intervalHeader = response.value(forHTTPHeaderField: "X-Poll-Interval"),
-          let seconds = Double(intervalHeader)
-        {
-          updatedRequest.capInterval(to: seconds)
-        }
-
         let status = try await request.processors.decode(
           response: response,
           data: data,
           for: request,
           in: context)
-        updatedRequest.updateRepeat(status: status)
-        return updatedRequest
+        return RequestOutcome(nextTag: nextTag, repeatStatus: status, pollInterval: pollInterval)
 
       } catch {
         request.log(error: error, data: data)
+        return RequestOutcome(nextTag: nextTag, repeatStatus: .inherited, pollInterval: pollInterval)
       }
     }
 
-    return request
+    return defaultOutcome
   }
 }
 
 extension Data {
+  /// Returns human-readable JSON or UTF-8 output for diagnostic logging.
   public var prettyPrinted: String {
     if let decoded = try? JSONSerialization.jsonObject(with: self, options: []),
       let encoded = try? JSONSerialization.data(withJSONObject: decoded, options: .prettyPrinted),

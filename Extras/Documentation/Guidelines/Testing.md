@@ -8,28 +8,28 @@ This module defines baseline expectations for proving behavior changes and repor
 
 ## Baseline Expectations
 
-- Add tests for new behavior and bug fixes where practical.
+- Add tests for new behavior and bug fixes.
+- Use red/green testing; make the test first, then make it pass.
 - Prefer focused unit/integration tests over heavy end-to-end tests unless the risk requires full-stack coverage.
-- Follow existing repository testing style unless there is a clear reason to improve it.
 
 ## Validation Workflow
 
 1. Run narrow checks closest to the change first.
 2. Run broader project checks next.
-3. If project validation scripts exist, use them.
-4. If scripts are missing or fail, run equivalent manual checks.
-5. If validation cannot run, report exactly what was not validated and why.
+3. Use the shared `validation-flow` skill (`codex/skills/validation-flow`) for standard validation (`rt validate`).
+4. If validation cannot run, report exactly what was not validated and why.
 
 ## Test Design Guidance
 
 - Test through stable interfaces where possible.
 - Keep tests explicit and readable.
-- Extract shared test helpers only when they improve clarity.
+- Extract shared test helpers to improve clarity.
 - Cover edge cases and failure modes touched by the change.
 
 ## Reporting Guidance
 
 When summarizing work:
+
 - list what checks were run
 - list what checks were skipped
 - call out meaningful residual risk from skipped validation

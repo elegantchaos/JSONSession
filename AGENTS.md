@@ -2,62 +2,41 @@
 
 ## Project Specific Rules
 
-- Stack detection: this repository is a SwiftPM library (`Package.swift`, `.swift` sources, Swift tests under `Tests/`).
-- Keep changes minimal and consistent with current library design (`Session`, `Processor`, `ProcessorGroup`, `Resource` flow).
-- Prefer preserving public API compatibility unless the task explicitly requests a breaking change.
-- For behavior changes, add or update focused tests in `Tests/JSONSessionTests`.
-- Validate with `swift test` when code or tests change; report any skipped validation and why.
-- Relevant local guidance:
+- This repository is a SwiftPM library (`Package.swift`, Swift sources under `Sources/`, Swift tests under `Tests/`).
+- Validate code changes with `swift test` and report any skipped validation.
+- Use stack-local guidance when needed:
   - [Swift](Extras/Documentation/Guidelines/Swift.md)
   - [Testing](Extras/Documentation/Guidelines/Testing.md)
 
 ## Standard Rules
 
-- Follow red/green TDD when practical; otherwise use the validation workflow in `Extras/Documentation/Guidelines/Testing.md`.
-- Write good code: correct, minimal, maintainable, tested, and updated documentation (`Extras/Documentation/Guidelines/Good Code.md`).
-- Apply these engineering principles:
-  - KISS
-  - YAGNI
-  - DRY (thoughtfully)
-  - Make Illegal States Unrepresentable
-  - Dependency Injection
-  - Composition Over Inheritance
-  - Command-Query Separation
-  - Law of Demeter
-  - Structured Concurrency
-  - Design by Contract
-  - Idempotency
+- Use red/green TDD for non-UI code; create previews for UI code; and follow the validation workflow in [Testing](Extras/Documentation/Guidelines/Testing.md).
+- Always write good code: correctness, minimalism, maintainability, test coverage, and documentation updates ([Good Code](Extras/Documentation/Guidelines/Good Code.md)).
+- Apply core engineering principles from [Principles](Extras/Documentation/Guidelines/Principles.md):
+  - Required: DRY, Single Source of Truth.
+  - Preferred: KISS, YAGNI, Make Illegal States Unrepresentable, Dependency Injection, Composition Over Inheritance, Command-Query Separation, Law of Demeter, Structured Concurrency, Design by Contract, Idempotency.
 - Change strategy:
-  - Prefer focused diffs and root-cause fixes.
-  - Preserve existing architecture/style unless change is necessary.
-  - Avoid unrelated refactors.
-- Core workflow:
   1. Understand request boundaries.
   2. Inspect relevant code/docs before editing.
-  3. Apply the smallest coherent change.
-  4. Add/update tests where feasible.
+  3. Apply the smallest coherent change set.
+  4. Add/update tests for behavior changes.
   5. Run relevant validation checks.
-  6. Report what changed, what was validated, and residual risk.
+  6. Report changes, validation status, and residual risk.
 - Engineering guardrails:
-  - Prioritize correctness, clarity, and maintainability.
-  - Keep interfaces explicit and small.
-  - Avoid hidden coupling/surprising side effects.
+  - Keep interfaces explicit and intentionally small.
+  - Avoid hidden coupling and surprising side effects.
   - Do not add dependencies without clear justification.
-  - Never expose or commit secrets.
-- Comments and documentation:
-  - Add concise intent-focused documentation comments for types, methods/functions, and members/properties.
-  - Keep inline comments sparse and only for non-obvious constraints/logic.
-  - Keep docs aligned with actual behavior.
-- Source quality:
-  - Prefer primary sources (official docs/specs/first-party repos).
-  - Use secondary sources only as supporting context and verify before relying.
-- Relevant local guidance:
-  - [Principles](Extras/Documentation/Guidelines/Principles.md)
-  - [Testing](Extras/Documentation/Guidelines/Testing.md)
-  - [Trusted Sources](Extras/Documentation/Guidelines/Trusted Sources.md)
-  - [Good Code](Extras/Documentation/Guidelines/Good Code.md)
-  - [Swift](Extras/Documentation/Guidelines/Swift.md)
+  - Never expose or commit credentials/secrets.
+- Documentation and comments:
+  - Keep docs accurate and aligned with behavior.
+  - Add concise intent-focused documentation comments for types/functions/members.
+  - Keep inline comments sparse and only for non-obvious logic/constraints.
+- Source quality and research: prefer primary sources and follow [Trusted Sources](Extras/Documentation/Guidelines/Trusted Sources.md).
+- Safety and discipline:
+  - Avoid unrelated refactors during focused tasks.
+  - Do not perform destructive actions without explicit approval.
+  - If unexpected workspace changes appear, pause and confirm direction.
 
 ---
 
-Regenerate this file regularly using `~/.local/share/agents/REFRESH.md` with `~/.local/share/agents/COMMON.md` and relevant modules in `~/.local/share/agents/instructions/`.
+To refresh this file, use the refresh-agents skill.

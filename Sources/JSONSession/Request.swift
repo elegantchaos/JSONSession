@@ -9,23 +9,25 @@ import Foundation
   import FoundationNetworking
 #endif
 
-/// Runtime state for an individual polling request.
-public struct Request<Context: Sendable>: @unchecked Sendable {
+/// Runtime state for a single request execution.
+public struct Request<Context: Sendable>: Sendable {
   /// Resource being polled.
-  public let resource: ResourceResolver
+  public let resource: any ResourceResolver
   /// Processor chain used to decode/handle responses.
   let processors: any ProcessorGroup<Context>
   /// Optional ETag for conditional requests.
   var tag: String?
-  /// Indicates whether polling should continue after a response.
+  /// Indicates whether follow-up polling was requested by processing.
   var repeating: Bool
-  /// Current repeat interval in seconds.
+  /// Repeat interval hint from response headers.
   var interval: TimeInterval
 
+  /// Next scheduled repeat time when `repeating` is true.
   var repeatTime: DispatchTime? {
     repeating ? DispatchTime.now().advanced(by: interval.asDispatchTimeInterval) : nil
   }
 
+  /// Updates repeat behavior using processor output.
   mutating func updateRepeat(status: RepeatStatus) {
     switch status {
     case .request: repeating = true
@@ -34,6 +36,7 @@ public struct Request<Context: Sendable>: @unchecked Sendable {
     }
   }
 
+  /// Caps the repeat interval with `X-Poll-Interval` when present.
   mutating func capInterval(to seconds: Double) {
     let current = interval
     let interval = max(current, seconds)
@@ -42,9 +45,10 @@ public struct Request<Context: Sendable>: @unchecked Sendable {
     }
   }
 
+  /// Builds an authenticated URL request for this target.
   func urlRequest(for session: Session) -> URLRequest {
     let authorization = "bearer \(session.token)"
-    let path = processors.path(for: resource, in: session)
+    let path = processors.path(for: resource)
     var request = URLRequest(url: session.base.appendingPathComponent(path))
     request.addValue(authorization, forHTTPHeaderField: "Authorization")
     request.httpMethod = "GET"
@@ -58,6 +62,7 @@ public struct Request<Context: Sendable>: @unchecked Sendable {
     return request
   }
 
+  /// Logs scheduled request timing details.
   func log(deadline: DispatchTime) {
     let distance = DispatchTime.now().distance(to: deadline).asTimeInterval
     let timeInfo = distance < 0 ? "now." : "in \(seconds: distance)."
@@ -65,6 +70,7 @@ public struct Request<Context: Sendable>: @unchecked Sendable {
     sessionChannel.log("Polling for \(processors.name) \(timeInfo)\(repeatInfo)")
   }
 
+  /// Logs decoder or processor errors with payload context.
   func log(error: Error, data: Data) {
     sessionChannel.log(
       "Error thrown:\n- query: \(processors.name)\n- target: \(resource)\n- processor: \(processors.name)\n- error: \(error)\n"
@@ -72,6 +78,7 @@ public struct Request<Context: Sendable>: @unchecked Sendable {
     sessionChannel.log("- data: \(data.prettyPrinted)\n\n")
   }
 
+  /// Logs successful transport receipt.
   func log(response: URLResponse?) {
     if let _ = response {
       networkingChannel.log("got response for \(resource)")

@@ -5,9 +5,13 @@
 
 import Foundation
 
+/// Standard GitHub-style API failure payload.
 public struct Failure: Codable, Sendable {
-  let message: String
-  let documentation_url: String
+  /// Human-readable failure summary.
+  public let message: String
+  /// Documentation URL supplied by the API.
+  public let documentation_url: String
 
-  var canIgnore: Bool { false }
+  /// Indicates whether this failure can be ignored by higher-level callers.
+  public var canIgnore: Bool { false }
 }
