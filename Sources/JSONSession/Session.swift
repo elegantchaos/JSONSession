@@ -33,6 +33,23 @@ public actor Session {
     case transportError(String)
   }
 
+  /// Summary of response-derived state that callers can use for follow-up scheduling.
+  public struct RequestOutcome: Sendable, Equatable {
+    /// Latest ETag observed in response headers.
+    public let nextTag: String?
+    /// Repeat decision returned by the matching processor.
+    public let repeatStatus: RepeatStatus
+    /// Server-provided poll interval hint from `X-Poll-Interval`.
+    public let pollInterval: TimeInterval?
+
+    /// Creates a request outcome.
+    public init(nextTag: String?, repeatStatus: RepeatStatus, pollInterval: TimeInterval?) {
+      self.nextTag = nextTag
+      self.repeatStatus = repeatStatus
+      self.pollInterval = pollInterval
+    }
+  }
+
   /// Transport used for outbound HTTP requests.
   public let fetcher: any HTTPDataFetcher
   /// Base URL for all polled resources.
@@ -57,7 +74,7 @@ public actor Session {
     context: Context,
     processors: some ProcessorGroup<Context>,
     tag: String? = nil
-  ) async {
+  ) async -> RequestOutcome {
     let request = Request(
       resource: target,
       processors: processors,
@@ -65,12 +82,16 @@ public actor Session {
       repeating: false,
       interval: 0
     )
-    await sendRequest(request: request, context: context)
+    return await sendRequest(request: request, context: context)
   }
 
   /// Executes a single request and returns the raw bytes and HTTP response.
   public func data(for target: any ResourceResolver, tag: String? = nil) async throws -> (Data, HTTPURLResponse) {
-    let path = target.path
+    try await data(forPath: target.path, tag: tag)
+  }
+
+  /// Executes a single request for an explicit path and returns raw bytes plus HTTP response.
+  func data(forPath path: String, tag: String? = nil) async throws -> (Data, HTTPURLResponse) {
     let authorization = "bearer \(token)"
     var request = URLRequest(url: base.appendingPathComponent(path))
     request.addValue(authorization, forHTTPHeaderField: "Authorization")
@@ -151,14 +172,15 @@ extension Session {
   }
 
   /// Runs a request and forwards the result into processor decoding.
-  func sendRequest<Context: Sendable>(request: Request<Context>, context: Context) async {
+  func sendRequest<Context: Sendable>(request: Request<Context>, context: Context) async -> RequestOutcome {
     do {
-      let (data, response) = try await data(for: request.resource, tag: request.tag)
+      let path = request.processors.path(for: request.resource)
+      let (data, response) = try await data(forPath: path, tag: request.tag)
       request.log(response: response)
-      _ = await processResponse(.success(data), response: response, for: request, context: context)
+      return await processResponse(.success(data), response: response, for: request, context: context)
     } catch {
       request.log(response: nil)
-      _ = await processResponse(.failure(error), response: nil, for: request, context: context)
+      return await processResponse(.failure(error), response: nil, for: request, context: context)
     }
   }
 
@@ -168,7 +190,9 @@ extension Session {
     response: URLResponse?,
     for request: Request<Context>,
     context: Context
-  ) async -> Request<Context> {
+  ) async -> RequestOutcome {
+    let defaultOutcome = RequestOutcome(nextTag: request.tag, repeatStatus: .inherited, pollInterval: nil)
+
     switch result {
     case .failure(let error):
       networkingChannel.log(error)
@@ -177,18 +201,19 @@ extension Session {
       do {
         guard let response = response as? HTTPURLResponse else { throw Errors.badResponse }
 
-        var updatedRequest = request
-        if let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining"),
-          let tag = response.value(forHTTPHeaderField: "Etag")
-        {
-          updatedRequest.tag = tag
+        var nextTag = request.tag
+        if let tag = response.value(forHTTPHeaderField: "Etag") {
+          nextTag = tag
+        }
+        if let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining") {
           networkingChannel.log("rate limit remaining: \(remaining)")
         }
 
+        var pollInterval: TimeInterval?
         if let intervalHeader = response.value(forHTTPHeaderField: "X-Poll-Interval"),
           let seconds = Double(intervalHeader)
         {
-          updatedRequest.capInterval(to: seconds)
+          pollInterval = seconds
         }
 
         let status = try await request.processors.decode(
@@ -196,15 +221,14 @@ extension Session {
           data: data,
           for: request,
           in: context)
-        updatedRequest.updateRepeat(status: status)
-        return updatedRequest
+        return RequestOutcome(nextTag: nextTag, repeatStatus: status, pollInterval: pollInterval)
 
       } catch {
         request.log(error: error, data: data)
       }
     }
 
-    return request
+    return defaultOutcome
   }
 }
 

@@ -19,7 +19,8 @@ public struct Query {
   /// Builds an authenticated GET request for a target resource.
   func request(for target: any ResourceResolver, in session: Session) -> URLRequest {
     let authorization = "bearer \(session.token)"
-    var request = URLRequest(url: session.base.appendingPathComponent(target.path))
+    let path = query(target, session)
+    var request = URLRequest(url: session.base.appendingPathComponent(path))
     request.addValue(authorization, forHTTPHeaderField: "Authorization")
     request.httpMethod = "GET"
     return request

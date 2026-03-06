@@ -129,14 +129,18 @@ struct JSONSessionTests {
     }
   }
 
-  func makeResponse<T: Encodable>(_ payload: T, status: Int) throws -> (Data, HTTPURLResponse) {
+  func makeResponse<T: Encodable>(
+    _ payload: T,
+    status: Int,
+    headers: [String: String]? = nil
+  ) throws -> (Data, HTTPURLResponse) {
     let data = try JSONEncoder().encode(payload)
     let response = try #require(
       HTTPURLResponse(
         url: url,
         statusCode: status,
         httpVersion: nil,
-        headerFields: nil))
+        headerFields: headers))
     return (data, response)
   }
 
@@ -149,7 +153,7 @@ struct JSONSessionTests {
     let session = Session(base: base, token: "", fetcher: fetcher)
 
     for _ in 0 ..< count {
-      await session.request(target: target, context: context, processors: processorGroup)
+      _ = await session.request(target: target, context: context, processors: processorGroup)
     }
 
     return await context.results()
@@ -260,5 +264,85 @@ struct JSONSessionTests {
     try await Task.sleep(for: .milliseconds(120))
     let finalCount = await fetcher.count()
     #expect(finalCount - countAfterTermination <= 1)
+  }
+
+  @Test
+  func requestReturnsOutcomeWithTagRepeatAndInterval() async throws {
+    struct RequestingProcessor: Processor {
+      typealias Context = TestContext
+      let codes = [200]
+
+      func process(
+        _ payload: ExamplePayload,
+        response _: HTTPURLResponse,
+        for _: Request<TestContext>,
+        in context: TestContext
+      ) async throws -> RepeatStatus {
+        _ = await context.emit(.payload(payload))
+        return .request
+      }
+    }
+
+    let payload = ExamplePayload(name: "test")
+    let fetcher = MockAsyncFetcher(
+      url: url,
+      responses: [
+        try makeResponse(
+          payload,
+          status: 200,
+          headers: ["Etag": "\"abc123\"", "X-Poll-Interval": "42"])
+      ])
+    let session = Session(base: base, token: "", fetcher: fetcher)
+    let context = TestContext()
+
+    let outcome = await session.request(
+      target: target,
+      context: context,
+      processors: RequestingProcessor().eraseToAnyProcessor())
+
+    #expect(outcome.nextTag == "\"abc123\"")
+    #expect(outcome.repeatStatus == .request)
+    #expect(outcome.pollInterval == 42)
+    #expect(await context.results() == [.payload(payload)])
+  }
+
+  @Test
+  func queryRequestUsesQueryClosurePath() async {
+    struct NeverUsedFetcher: HTTPDataFetcher {
+      func data(for _: URLRequest) async throws -> (Data, URLResponse) {
+        throw URLError(.badServerResponse)
+      }
+    }
+
+    let session = Session(base: base, token: "token", fetcher: NeverUsedFetcher())
+    let query = Query(name: "override") { _, _ in
+      "custom/path"
+    }
+
+    let request = query.request(for: target, in: session)
+    #expect(request.url == base.appendingPathComponent("custom/path"))
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "bearer token")
+  }
+
+  @Test
+  func requestUsesProcessorGroupPathOverride() async throws {
+    struct OverridePathGroup: ProcessorGroup {
+      typealias Context = TestContext
+      let name = "Override Path Group"
+      let processors: [AnyProcessor<TestContext>] = [PayloadProcessor().eraseToAnyProcessor()]
+
+      func path(for _: any ResourceResolver) -> String {
+        "override/path"
+      }
+    }
+
+    let payload = ExamplePayload(name: "test")
+    let overrideURL = base.appendingPathComponent("override/path")
+    let fetcher = MockAsyncFetcher(url: overrideURL, responses: [try makeResponse(payload, status: 200)])
+    let context = TestContext()
+    let session = Session(base: base, token: "", fetcher: fetcher)
+
+    _ = await session.request(target: target, context: context, processors: OverridePathGroup())
+    #expect(await context.results() == [.payload(payload)])
   }
 }

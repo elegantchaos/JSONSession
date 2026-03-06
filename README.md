@@ -77,7 +77,7 @@ struct ErrorPayload: Decodable {
   let error: String
 }
 
-actor Context {
+actor ItemContext {
   var lastItem: Item?
   var lastError: String?
 
@@ -91,7 +91,7 @@ actor Context {
 }
 
 struct ItemProcessor: Processor {
-  typealias Context = Context
+  typealias Context = ItemContext
   let codes = [200]
 
   func process(
@@ -106,7 +106,7 @@ struct ItemProcessor: Processor {
 }
 
 struct ErrorProcessor: Processor {
-  typealias Context = Context
+  typealias Context = ItemContext
   let codes = [400]
 
   func process(
@@ -121,7 +121,7 @@ struct ErrorProcessor: Processor {
 }
 
 let session = Session(base: URL(string: "https://some.endpoint/v1/")!, token: "<api-token>")
-let context = Context()
+let context = ItemContext()
 let processors = AnyProcessorGroup(
   name: "Item Query",
   processors: [
