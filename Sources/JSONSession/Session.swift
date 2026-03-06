@@ -134,7 +134,7 @@ public actor Session {
         while !Task.isCancelled {
           do {
             let (data, response) = try await self.data(for: target, tag: currentTag)
-            currentTag = response.value(forHTTPHeaderField: "Etag") ?? currentTag
+            currentTag = response.value(forHTTPHeaderField: "ETag") ?? currentTag
             continuation.yield(.response(data, response))
           } catch {
             networkingChannel.log(error)
@@ -198,24 +198,24 @@ extension Session {
       networkingChannel.log(error)
 
     case .success(let data):
+      guard let response = response as? HTTPURLResponse else {
+        networkingChannel.log(Errors.badResponse)
+        return defaultOutcome
+      }
+
+      let nextTag = response.value(forHTTPHeaderField: "ETag") ?? request.tag
+      if let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining") {
+        networkingChannel.log("rate limit remaining: \(remaining)")
+      }
+
+      var pollInterval: TimeInterval?
+      if let intervalHeader = response.value(forHTTPHeaderField: "X-Poll-Interval"),
+        let seconds = Double(intervalHeader)
+      {
+        pollInterval = seconds
+      }
+
       do {
-        guard let response = response as? HTTPURLResponse else { throw Errors.badResponse }
-
-        var nextTag = request.tag
-        if let tag = response.value(forHTTPHeaderField: "Etag") {
-          nextTag = tag
-        }
-        if let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining") {
-          networkingChannel.log("rate limit remaining: \(remaining)")
-        }
-
-        var pollInterval: TimeInterval?
-        if let intervalHeader = response.value(forHTTPHeaderField: "X-Poll-Interval"),
-          let seconds = Double(intervalHeader)
-        {
-          pollInterval = seconds
-        }
-
         let status = try await request.processors.decode(
           response: response,
           data: data,
@@ -225,6 +225,7 @@ extension Session {
 
       } catch {
         request.log(error: error, data: data)
+        return RequestOutcome(nextTag: nextTag, repeatStatus: .inherited, pollInterval: pollInterval)
       }
     }
 

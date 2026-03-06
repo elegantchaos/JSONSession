@@ -63,6 +63,40 @@ This keeps JSONSession focused on transport + decoding, while application/domain
 
 You can also call `await session.data(for:)` when you want raw bytes and the `HTTPURLResponse`.
 
+## ETag and Conditional Requests
+
+JSONSession supports HTTP conditional requests using `ETag` and `If-None-Match`.
+
+- Pass the previous tag into `session.request(..., tag:)`.
+- JSONSession sends that value as the `If-None-Match` header.
+- Read `RequestOutcome.nextTag` and persist it for the next cycle.
+- If processing does not run (for example a `304 Not Modified` response with no matching processor), the outcome still carries `nextTag` and `pollInterval` when present.
+
+For `pollData(...)`, JSONSession automatically tracks the latest `ETag` and reuses it as `If-None-Match` on subsequent polls.
+
+### Practical pattern
+
+```swift
+var tag: String?
+
+let outcome = await session.request(
+  target: Resource("some/rest/resource"),
+  context: context,
+  processors: processors,
+  tag: tag
+)
+
+tag = outcome.nextTag
+```
+
+### References
+
+- [RFC 9110: ETag](https://www.rfc-editor.org/rfc/rfc9110.html#name-etag)
+- [RFC 9110: If-None-Match](https://www.rfc-editor.org/rfc/rfc9110.html#name-if-none-match)
+- [RFC 9110: 304 Not Modified](https://www.rfc-editor.org/rfc/rfc9110.html#name-304-not-modified)
+- [MDN: If-None-Match](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/If-None-Match)
+- [MDN: 304 Not Modified](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status/304)
+
 ## Example
 
 ```swift

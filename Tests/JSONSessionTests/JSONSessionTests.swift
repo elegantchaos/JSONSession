@@ -129,12 +129,48 @@ struct JSONSessionTests {
     }
   }
 
+  actor RecordingFetcher: HTTPDataFetcher {
+    private let responses: [(Data, HTTPURLResponse)]
+    private var requests: [URLRequest] = []
+    private var next = 0
+
+    init(responses: [(Data, HTTPURLResponse)]) {
+      self.responses = responses
+    }
+
+    func data(for request: URLRequest) async throws -> (Data, URLResponse) {
+      requests.append(request)
+      guard !responses.isEmpty else { throw URLError(.badServerResponse) }
+      let index = min(next, responses.count - 1)
+      next += 1
+      return responses[index]
+    }
+
+    func ifNoneMatchValues() -> [String?] {
+      requests.map { $0.value(forHTTPHeaderField: "If-None-Match") }
+    }
+  }
+
   func makeResponse<T: Encodable>(
     _ payload: T,
     status: Int,
     headers: [String: String]? = nil
   ) throws -> (Data, HTTPURLResponse) {
     let data = try JSONEncoder().encode(payload)
+    let response = try #require(
+      HTTPURLResponse(
+        url: url,
+        statusCode: status,
+        httpVersion: nil,
+        headerFields: headers))
+    return (data, response)
+  }
+
+  func makeRawResponse(
+    status: Int,
+    data: Data = Data(),
+    headers: [String: String]? = nil
+  ) throws -> (Data, HTTPURLResponse) {
     let response = try #require(
       HTTPURLResponse(
         url: url,
@@ -290,7 +326,7 @@ struct JSONSessionTests {
         try makeResponse(
           payload,
           status: 200,
-          headers: ["Etag": "\"abc123\"", "X-Poll-Interval": "42"])
+          headers: ["ETag": "\"abc123\"", "X-Poll-Interval": "42"])
       ])
     let session = Session(base: base, token: "", fetcher: fetcher)
     let context = TestContext()
@@ -304,6 +340,48 @@ struct JSONSessionTests {
     #expect(outcome.repeatStatus == .request)
     #expect(outcome.pollInterval == 42)
     #expect(await context.results() == [.payload(payload)])
+  }
+
+  @Test
+  func requestUsesIfNoneMatchHeaderFromTagArgument() async throws {
+    let payload = ExamplePayload(name: "test")
+    let fetcher = RecordingFetcher(responses: [try makeResponse(payload, status: 200)])
+    let session = Session(base: base, token: "", fetcher: fetcher)
+    let context = TestContext()
+    let tag = "\"abc123\""
+
+    _ = await session.request(
+      target: target,
+      context: context,
+      processors: PayloadProcessor().eraseToAnyProcessor(),
+      tag: tag)
+
+    let values = await fetcher.ifNoneMatchValues()
+    #expect(values.first == tag)
+  }
+
+  @Test
+  func requestReturnsEtagWhenResponseIsUnprocessed() async throws {
+    let fetcher = MockAsyncFetcher(
+      url: url,
+      responses: [
+        try makeRawResponse(
+          status: 304,
+          headers: ["ETag": "\"updated-tag\"", "X-Poll-Interval": "30"])
+      ])
+    let session = Session(base: base, token: "", fetcher: fetcher)
+    let context = TestContext()
+
+    let outcome = await session.request(
+      target: target,
+      context: context,
+      processors: PayloadProcessor().eraseToAnyProcessor(),
+      tag: "\"previous-tag\"")
+
+    #expect(outcome.nextTag == "\"updated-tag\"")
+    #expect(outcome.repeatStatus == .inherited)
+    #expect(outcome.pollInterval == 30)
+    #expect(await context.results().isEmpty)
   }
 
   @Test
