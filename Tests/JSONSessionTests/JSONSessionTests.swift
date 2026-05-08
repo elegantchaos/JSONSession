@@ -194,7 +194,7 @@ struct JSONSessionTests {
     let context = TestContext()
     let session = Session(base: base, token: "", fetcher: fetcher)
 
-    for _ in 0 ..< count {
+    for _ in 0..<count {
       _ = await session.request(target: target, context: context, processors: processorGroup)
     }
 
@@ -236,7 +236,8 @@ struct JSONSessionTests {
   func processorAsGroup() async throws {
     let payload = ExamplePayload(name: "test")
     let fetcher = MockAsyncFetcher(url: url, responses: [try makeResponse(payload, status: 200)])
-    let results = await executeRequests(fetcher: fetcher, processorGroup: PayloadProcessor().eraseToAnyProcessor())
+    let results = await executeRequests(
+      fetcher: fetcher, processorGroup: PayloadProcessor().eraseToAnyProcessor())
     #expect(results == [.payload(payload)])
   }
 
@@ -357,6 +358,92 @@ struct JSONSessionTests {
   }
 
   @Test
+  func requestReturnsRateLimitMetadataFromSuccessfulResponse() async throws {
+    let payload = ExamplePayload(name: "test")
+    let resetDate = Date(timeIntervalSince1970: 1_770_000_000)
+    let fetcher = MockAsyncFetcher(
+      url: url,
+      responses: [
+        try makeResponse(
+          payload,
+          status: 200,
+          headers: [
+            "X-RateLimit-Limit": "5000",
+            "X-RateLimit-Remaining": "4999",
+            "X-RateLimit-Used": "1",
+            "X-RateLimit-Reset": "1770000000",
+            "X-RateLimit-Resource": "core",
+          ])
+      ])
+    let session = Session(base: base, token: "", fetcher: fetcher)
+    let context = TestContext()
+
+    let outcome = await session.request(
+      target: target,
+      context: context,
+      processors: PayloadProcessor().eraseToAnyProcessor())
+
+    #expect(outcome.metadata?.statusCode == 200)
+    #expect(outcome.rateLimit?.limit == 5000)
+    #expect(outcome.rateLimit?.remaining == 4999)
+    #expect(outcome.rateLimit?.used == 1)
+    #expect(outcome.rateLimit?.resetDate == resetDate)
+    #expect(outcome.rateLimit?.resource == "core")
+    #expect(outcome.rateLimit?.retryAfter == nil)
+    #expect(outcome.rateLimit?.isDepleted == false)
+  }
+
+  @Test
+  func requestReturnsRetryAfterMetadataFromUnprocessedResponse() async throws {
+    let fetcher = MockAsyncFetcher(
+      url: url,
+      responses: [
+        try makeRawResponse(
+          status: 429,
+          data: Data(#"{"message":"secondary rate limit"}"#.utf8),
+          headers: [
+            "Retry-After": "60",
+            "X-RateLimit-Remaining": "0",
+          ])
+      ])
+    let session = Session(base: base, token: "", fetcher: fetcher)
+    let context = TestContext()
+
+    let outcome = await session.request(
+      target: target,
+      context: context,
+      processors: PayloadProcessor().eraseToAnyProcessor())
+
+    #expect(outcome.metadata?.statusCode == 429)
+    #expect(outcome.rateLimit?.remaining == 0)
+    #expect(outcome.rateLimit?.retryAfter == 60)
+    #expect(outcome.rateLimit?.isDepleted == true)
+    #expect(
+      outcome.rateLimit?.retryDate(relativeTo: Date(timeIntervalSince1970: 100))
+        == Date(timeIntervalSince1970: 160))
+    #expect(await context.results().isEmpty)
+  }
+
+  @Test
+  func metadataLooksUpHeadersCaseInsensitively() throws {
+    let response = try makeRawResponse(
+      status: 403,
+      headers: [
+        "x-ratelimit-remaining": "0",
+        "X-RATELIMIT-RESET": "1770000000",
+        "retry-after": "30",
+      ]
+    ).1
+
+    let metadata = response.metadata
+
+    #expect(metadata.value(forHTTPHeaderField: "X-RateLimit-Remaining") == "0")
+    #expect(metadata.rateLimit?.remaining == 0)
+    #expect(metadata.rateLimit?.resetDate == Date(timeIntervalSince1970: 1_770_000_000))
+    #expect(metadata.rateLimit?.retryAfter == 30)
+  }
+
+  @Test
   func requestUsesIfNoneMatchHeaderFromTagArgument() async throws {
     let payload = ExamplePayload(name: "test")
     let fetcher = RecordingFetcher(responses: [try makeResponse(payload, status: 200)])
@@ -399,6 +486,24 @@ struct JSONSessionTests {
   }
 
   @Test
+  func pollDataEventExposesResponseMetadata() async throws {
+    let payload = ExamplePayload(name: "test")
+    let fetcher = CountingFetcher(
+      url: url,
+      response: try makeResponse(
+        payload,
+        status: 200,
+        headers: ["X-RateLimit-Remaining": "123"]))
+    let session = Session(base: base, token: "", fetcher: fetcher)
+
+    var iterator = session.pollData(for: target, every: .milliseconds(10)).makeAsyncIterator()
+    let event = try #require(await iterator.next())
+
+    #expect(event.metadata?.statusCode == 200)
+    #expect(event.metadata?.rateLimit?.remaining == 123)
+  }
+
+  @Test
   func queryRequestUsesQueryClosurePath() async {
     struct NeverUsedFetcher: HTTPDataFetcher {
       func data(for _: URLRequest) async throws -> (Data, URLResponse) {
@@ -430,7 +535,8 @@ struct JSONSessionTests {
 
     let payload = ExamplePayload(name: "test")
     let overrideURL = base.appendingPathComponent("override/path")
-    let fetcher = MockAsyncFetcher(url: overrideURL, responses: [try makeResponse(payload, status: 200)])
+    let fetcher = MockAsyncFetcher(
+      url: overrideURL, responses: [try makeResponse(payload, status: 200)])
     let context = TestContext()
     let session = Session(base: base, token: "", fetcher: fetcher)
 

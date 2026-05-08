@@ -31,6 +31,16 @@ public actor Session {
     case response(Data, HTTPURLResponse)
     /// Transport-level failure while executing a poll request.
     case transportError(String)
+
+    /// Response metadata, when this event carries an HTTP response.
+    public var metadata: HTTPResponseMetadata? {
+      switch self {
+      case .response(_, let response):
+        return response.metadata
+      case .transportError:
+        return nil
+      }
+    }
   }
 
   /// Summary of response-derived state that callers can use for follow-up scheduling.
@@ -41,12 +51,22 @@ public actor Session {
     public let repeatStatus: RepeatStatus
     /// Server-provided poll interval hint from `X-Poll-Interval`.
     public let pollInterval: TimeInterval?
+    /// HTTP metadata from the response that produced this outcome.
+    public let metadata: HTTPResponseMetadata?
+    /// Parsed rate-limit information from the response that produced this outcome.
+    public var rateLimit: RateLimitSnapshot? { metadata?.rateLimit }
 
     /// Creates a request outcome.
-    public init(nextTag: String?, repeatStatus: RepeatStatus, pollInterval: TimeInterval?) {
+    public init(
+      nextTag: String?,
+      repeatStatus: RepeatStatus,
+      pollInterval: TimeInterval?,
+      metadata: HTTPResponseMetadata? = nil
+    ) {
       self.nextTag = nextTag
       self.repeatStatus = repeatStatus
       self.pollInterval = pollInterval
+      self.metadata = metadata
     }
   }
 
@@ -86,7 +106,9 @@ public actor Session {
   }
 
   /// Executes a single request and returns the raw bytes and HTTP response.
-  public func data(for target: any ResourceResolver, tag: String? = nil) async throws -> (Data, HTTPURLResponse) {
+  public func data(for target: any ResourceResolver, tag: String? = nil) async throws -> (
+    Data, HTTPURLResponse
+  ) {
     try await data(forPath: target.path, tag: tag)
   }
 
@@ -175,12 +197,15 @@ extension Session {
   }
 
   /// Runs a request and forwards the result into processor decoding.
-  func sendRequest<Context: Sendable>(request: Request<Context>, context: Context) async -> RequestOutcome {
+  func sendRequest<Context: Sendable>(request: Request<Context>, context: Context) async
+    -> RequestOutcome
+  {
     do {
       let path = request.processors.path(for: request.resource)
       let (data, response) = try await data(forPath: path, tag: request.tag)
       request.log(response: response)
-      return await processResponse(.success(data), response: response, for: request, context: context)
+      return await processResponse(
+        .success(data), response: response, for: request, context: context)
     } catch {
       request.log(response: nil)
       return await processResponse(.failure(error), response: nil, for: request, context: context)
@@ -194,7 +219,8 @@ extension Session {
     for request: Request<Context>,
     context: Context
   ) async -> RequestOutcome {
-    let defaultOutcome = RequestOutcome(nextTag: request.tag, repeatStatus: .inherited, pollInterval: nil)
+    let defaultOutcome = RequestOutcome(
+      nextTag: request.tag, repeatStatus: .inherited, pollInterval: nil)
 
     switch result {
     case .failure(let error):
@@ -206,13 +232,14 @@ extension Session {
         return defaultOutcome
       }
 
+      let metadata = response.metadata
       let nextTag = response.value(forHTTPHeaderField: "ETag") ?? request.tag
-      if let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining") {
+      if let remaining = metadata.rateLimit?.remaining {
         networkingChannel.log("rate limit remaining: \(remaining)")
       }
 
       var pollInterval: TimeInterval?
-      if let intervalHeader = response.value(forHTTPHeaderField: "X-Poll-Interval"),
+      if let intervalHeader = metadata.value(forHTTPHeaderField: "X-Poll-Interval"),
         let seconds = Double(intervalHeader)
       {
         pollInterval = seconds
@@ -224,11 +251,14 @@ extension Session {
           data: data,
           for: request,
           in: context)
-        return RequestOutcome(nextTag: nextTag, repeatStatus: status, pollInterval: pollInterval)
+        return RequestOutcome(
+          nextTag: nextTag, repeatStatus: status, pollInterval: pollInterval, metadata: metadata)
 
       } catch {
         request.log(error: error, data: data)
-        return RequestOutcome(nextTag: nextTag, repeatStatus: .inherited, pollInterval: pollInterval)
+        return RequestOutcome(
+          nextTag: nextTag, repeatStatus: .inherited, pollInterval: pollInterval, metadata: metadata
+        )
       }
     }
 
