@@ -501,6 +501,11 @@ struct JSONSessionTests {
 
     #expect(event.metadata?.statusCode == 200)
     #expect(event.metadata?.rateLimit?.remaining == 123)
+    if case .response(_, _, let metadata) = event {
+      #expect(metadata.rateLimit?.remaining == 123)
+    } else {
+      Issue.record("Expected response event.")
+    }
   }
 
   @Test

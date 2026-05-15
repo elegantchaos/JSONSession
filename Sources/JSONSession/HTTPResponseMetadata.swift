@@ -67,9 +67,14 @@ public struct HTTPResponseMetadata: Sendable, Equatable {
 
   /// Creates metadata from a status code and headers.
   public init(statusCode: Int, headers: [String: String]) {
+    let metadata = Self(statusCode: statusCode, headers: headers, rateLimit: nil)
+    self.init(statusCode: statusCode, headers: headers, rateLimit: metadata.parsedRateLimit())
+  }
+
+  private init(statusCode: Int, headers: [String: String], rateLimit: RateLimitSnapshot?) {
     self.statusCode = statusCode
     self.headers = headers
-    self.rateLimit = Self.parseRateLimit(headers: headers)
+    self.rateLimit = rateLimit
   }
 
   /// Creates metadata from an `HTTPURLResponse`.
@@ -92,23 +97,43 @@ public struct HTTPResponseMetadata: Sendable, Equatable {
 
   /// Converts response headers to string-keyed and string-valued storage.
   private static func stringHeaders(from response: HTTPURLResponse) -> [String: String] {
-    Dictionary(
-      uniqueKeysWithValues: response.allHeaderFields.compactMap { key, value in
-        guard let name = key as? String else { return nil }
-        return (name, String(describing: value))
+    response.allHeaderFields.reduce(into: [:]) { headers, field in
+      guard
+        let name = field.key as? String,
+        let value = stringHeaderValue(from: field.value)
+      else {
+        return
       }
-    )
+
+      headers[name] = headers[name].map { "\($0), \(value)" } ?? value
+    }
+  }
+
+  private static func stringHeaderValue(from value: Any) -> String? {
+    if let value = value as? String {
+      return value
+    }
+
+    if let values = value as? [String] {
+      return values.joined(separator: ", ")
+    }
+
+    if let values = value as? NSArray {
+      let strings = values.compactMap { $0 as? String }
+      return strings.isEmpty ? nil : strings.joined(separator: ", ")
+    }
+
+    return nil
   }
 
   /// Parses standard GitHub-style rate-limit response headers.
-  private static func parseRateLimit(headers: [String: String]) -> RateLimitSnapshot? {
-    let metadata = HTTPResponseHeaderLookup(headers: headers)
-    let limit = metadata.intValue(forHTTPHeaderField: "X-RateLimit-Limit")
-    let remaining = metadata.intValue(forHTTPHeaderField: "X-RateLimit-Remaining")
-    let used = metadata.intValue(forHTTPHeaderField: "X-RateLimit-Used")
-    let resetDate = metadata.unixDateValue(forHTTPHeaderField: "X-RateLimit-Reset")
-    let resource = metadata.value(forHTTPHeaderField: "X-RateLimit-Resource")
-    let retryAfter = metadata.timeIntervalValue(forHTTPHeaderField: "Retry-After")
+  private func parsedRateLimit() -> RateLimitSnapshot? {
+    let limit = intValue(forHTTPHeaderField: "X-RateLimit-Limit")
+    let remaining = intValue(forHTTPHeaderField: "X-RateLimit-Remaining")
+    let used = intValue(forHTTPHeaderField: "X-RateLimit-Used")
+    let resetDate = unixDateValue(forHTTPHeaderField: "X-RateLimit-Reset")
+    let resource = value(forHTTPHeaderField: "X-RateLimit-Resource")
+    let retryAfter = timeIntervalValue(forHTTPHeaderField: "Retry-After")
 
     guard
       limit != nil || remaining != nil || used != nil || resetDate != nil || resource != nil
@@ -126,35 +151,19 @@ public struct HTTPResponseMetadata: Sendable, Equatable {
       retryAfter: retryAfter
     )
   }
-}
-
-/// Case-insensitive helper for parsing HTTP header dictionaries.
-private struct HTTPResponseHeaderLookup {
-  /// Header storage with original field names.
-  let headers: [String: String]
-
-  /// Returns a header value using case-insensitive field-name matching.
-  func value(forHTTPHeaderField field: String) -> String? {
-    if let value = headers[field] {
-      return value
-    }
-
-    let lowercaseField = field.lowercased()
-    return headers.first { $0.key.lowercased() == lowercaseField }?.value
-  }
 
   /// Parses an integer header value.
-  func intValue(forHTTPHeaderField field: String) -> Int? {
+  private func intValue(forHTTPHeaderField field: String) -> Int? {
     value(forHTTPHeaderField: field).flatMap(Int.init)
   }
 
   /// Parses a time interval header value in seconds.
-  func timeIntervalValue(forHTTPHeaderField field: String) -> TimeInterval? {
+  private func timeIntervalValue(forHTTPHeaderField field: String) -> TimeInterval? {
     value(forHTTPHeaderField: field).flatMap(TimeInterval.init)
   }
 
   /// Parses a Unix timestamp header value into a `Date`.
-  func unixDateValue(forHTTPHeaderField field: String) -> Date? {
+  private func unixDateValue(forHTTPHeaderField field: String) -> Date? {
     timeIntervalValue(forHTTPHeaderField: field).map { Date(timeIntervalSince1970: $0) }
   }
 }

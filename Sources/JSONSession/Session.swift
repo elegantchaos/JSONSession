@@ -28,15 +28,15 @@ public actor Session {
   /// Result event produced by stream-based polling.
   public enum PollDataEvent: Sendable {
     /// Successful response payload.
-    case response(Data, HTTPURLResponse)
+    case response(Data, HTTPURLResponse, HTTPResponseMetadata)
     /// Transport-level failure while executing a poll request.
     case transportError(String)
 
     /// Response metadata, when this event carries an HTTP response.
     public var metadata: HTTPResponseMetadata? {
       switch self {
-      case .response(_, let response):
-        return response.metadata
+      case .response(_, _, let metadata):
+        return metadata
       case .transportError:
         return nil
       }
@@ -157,7 +157,7 @@ public actor Session {
           do {
             let (data, response) = try await self.data(for: target, tag: currentTag)
             currentTag = response.value(forHTTPHeaderField: "ETag") ?? currentTag
-            continuation.yield(.response(data, response))
+            continuation.yield(.response(data, response, response.metadata))
           } catch {
             if error is CancellationError || Task.isCancelled {
               break
@@ -234,7 +234,7 @@ extension Session {
 
       let metadata = response.metadata
       let nextTag = response.value(forHTTPHeaderField: "ETag") ?? request.tag
-      if let remaining = metadata.rateLimit?.remaining {
+      if let remaining = metadata.value(forHTTPHeaderField: "X-RateLimit-Remaining") {
         networkingChannel.log("rate limit remaining: \(remaining)")
       }
 
